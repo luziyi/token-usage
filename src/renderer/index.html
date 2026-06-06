@@ -53,23 +53,34 @@
       </section>
 
       <section id="settingsPanel" class="settings-panel hidden">
-        <div class="settings-group">
-          <div class="settings-group-header">显示设置</div>
-          <label><span>币种</span>
-            <select id="currencyInput">
-              <option value="USD">USD ($)</option>
-              <option value="CNY">CNY (¥)</option>
-            </select>
-          </label>
-          <label><span>刷新间隔</span>
-            <select id="refreshInput">
-              <option value="2000">2s</option>
-              <option value="5000">5s</option>
-              <option value="10000">10s</option>
-              <option value="30000">30s</option>
-              <option value="60000">60s</option>
-            </select>
-          </label>
+        <div class="settings-panel-title">
+          <span>偏好设置</span>
+          <span class="settings-panel-sub">币种与刷新频率</span>
+        </div>
+        <div class="settings-fields">
+          <div class="settings-field">
+            <div class="settings-field-label">币种</div>
+            <div class="settings-select-wrap">
+              <select id="currencyInput">
+                <option value="USD">USD ($)</option>
+                <option value="CNY">CNY (¥)</option>
+              </select>
+              <span class="settings-select-arrow">&#9660;</span>
+            </div>
+          </div>
+          <div class="settings-field">
+            <div class="settings-field-label">刷新间隔</div>
+            <div class="settings-select-wrap">
+              <select id="refreshInput">
+                <option value="2000">2 秒</option>
+                <option value="5000">5 秒</option>
+                <option value="10000">10 秒</option>
+                <option value="30000">30 秒</option>
+                <option value="60000">60 秒</option>
+              </select>
+              <span class="settings-select-arrow">&#9660;</span>
+            </div>
+          </div>
         </div>
         <div class="settings-actions">
           <button id="saveSettingsButton">保存</button>

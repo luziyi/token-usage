@@ -257,6 +257,12 @@ body {
   font-size: 11px;
 }
 
+.total-header-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .icon-button:hover,
 .icon-button-sm:hover {
   color: var(--text);
@@ -492,91 +498,149 @@ body {
 
 /* Settings Panel */
 .settings-panel {
-  background: rgba(30, 32, 38, 0.4);
+  background: rgba(30, 32, 38, 0.45);
   border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 16px;
-  padding: 14px;
-  margin: 4px 0;
+  border-radius: 18px;
+  padding: 16px;
+  margin: 6px 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
   backdrop-filter: blur(48px) saturate(130%);
   -webkit-backdrop-filter: blur(48px) saturate(130%);
   box-shadow: 
-    0 8px 24px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    0 12px 32px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
-.settings-group {
+.settings-panel-title {
+  text-align: center;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
 }
 
-.settings-group-header {
-  font-size: 9px;
+.settings-panel-title span:first-child {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.settings-panel-sub {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.settings-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-field-label {
+  font-size: 10px;
   font-weight: 700;
   color: var(--text-dim);
-  letter-spacing: 1px;
   text-transform: uppercase;
-  padding-bottom: 4px;
-  border-bottom: 1px solid var(--border);
+  letter-spacing: 1px;
+  padding-left: 2px;
 }
 
-.settings-group label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--text);
-}
-
-.settings-group label span:first-child {
-  flex-shrink: 0;
-  min-width: 70px;
-  color: var(--text-muted);
-}
-
-.settings-group select {
+.settings-select-wrap {
+  position: relative;
   flex: 1;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  padding: 5px 8px;
-  color: var(--text);
-  font-size: 11px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 
-.settings-group select:focus {
+.settings-select-wrap select {
+  width: 100%;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+  background: rgba(255, 255, 255, 0.08);
+  background-image: none !important;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  padding: 10px 34px 10px 12px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  font-family: inherit;
+  line-height: 1.4;
+  outline: none;
+  text-indent: 0;
+}
+
+.settings-select-wrap select::-ms-expand {
+  display: none !important;
+}
+
+.settings-select-wrap select option {
+  background: rgba(30, 32, 38, 0.95);
+  color: var(--text);
+  padding: 8px;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+.settings-select-wrap select:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.settings-select-wrap select:focus {
   border-color: var(--accent);
   outline: none;
-  box-shadow: 0 0 0 2px rgba(94, 158, 255, 0.2);
+  box-shadow: 0 0 0 3px rgba(94, 158, 255, 0.2);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.settings-select-arrow {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 9px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: center;
 }
 
 .settings-actions button {
   -webkit-appearance: none;
   appearance: none;
   background: var(--accent);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.25);
   color: white;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 6px 16px;
-  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 32px;
+  border-radius: 12px;
   cursor: pointer;
-  transition: opacity 0.2s, transform 0.15s, box-shadow 0.2s;
-  box-shadow: 0 2px 8px rgba(94, 158, 255, 0.3);
+  transition: transform 0.15s, box-shadow 0.2s;
+  box-shadow: 0 4px 12px rgba(94, 158, 255, 0.35);
 }
 
 .settings-actions button:hover {
-  opacity: 0.9;
-  box-shadow: 0 4px 12px rgba(94, 158, 255, 0.4);
+  box-shadow: 0 6px 18px rgba(94, 158, 255, 0.5);
 }
+
 .settings-actions button:active {
   transform: scale(0.95);
-  box-shadow: 0 1px 4px rgba(94, 158, 255, 0.3);
+  box-shadow: 0 2px 8px rgba(94, 158, 255, 0.3);
 }
 
 /* Session Detail */

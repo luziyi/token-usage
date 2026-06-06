@@ -251,6 +251,9 @@ async function collectAll({ allTimeSince, homeDir }) {
 /**
  * For sessions that had model-switched events, split their single exchange
  * into per-model exchanges proportionally by per-message cost.
+ * Uses two strategies:
+ * 1. Per-message data.model field (if available)
+ * 2. Timestamp-based model-switch timeline (fallback)
  */
 function applyModelSwitchSplit(db, exchanges) {
   const collectedIds = exchanges.map(e => e.sessionId).filter(Boolean);
@@ -265,62 +268,126 @@ function applyModelSwitchSplit(db, exchanges) {
     if (r.session_id) switchedIds.push(r.session_id);
   }
   switchCheck.free();
-
   if (switchedIds.length === 0) return;
 
-  const msgPlaceholders = switchedIds.map(() => '?').join(',');
-  const msgSt = db.prepare(`
-    SELECT session_id, data FROM message
-    WHERE session_id IN (${msgPlaceholders})
+  // Helper: match message session_id to short session id
+  const matchSession = (msgSid) => {
+    for (const sid of switchedIds) {
+      if (msgSid.startsWith(sid)) return sid;
+    }
+    return msgSid;
+  };
+
+  const perModel = {};
+
+  // ---- Strategy 1: per-message model field ----
+  const likeList = switchedIds.map(() => "session_id LIKE ? || '%'").join(' OR ');
+  const st1 = db.prepare(`
+    SELECT session_id, time_created, data FROM message
+    WHERE (${likeList})
       AND json_extract(data, '$.role') = 'assistant'
       AND json_extract(data, '$.model.modelID') IS NOT NULL
     ORDER BY session_id, time_created ASC
   `);
-  msgSt.bind(switchedIds);
-
-  const perModel = {};
-  while (msgSt.step()) {
-    const r = msgSt.getAsObject();
+  st1.bind(switchedIds);
+  while (st1.step()) {
+    const r = st1.getAsObject();
     let d = {};
     try { d = JSON.parse(r.data || '{}'); } catch {}
     const m = d.model;
     if (!m) continue;
     const mid = m.modelID || m.id || '';
     if (!mid) continue;
-    const key = r.session_id + '::' + mid;
+    const sid = matchSession(r.session_id);
+    const key = sid + '::' + mid;
     if (!perModel[key]) {
-      perModel[key] = {
-        sessionId: r.session_id, model: mid, provider: m.providerID || '',
-        cost: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0
-      };
+      perModel[key] = { sessionId: sid, model: mid, provider: m.providerID || '', cost: 0 };
     }
     const t = d.tokens || {};
     perModel[key].cost += Number(d.cost) || 0;
-    perModel[key].input += Number(t.input) || 0;
-    perModel[key].output += Number(t.output) || 0;
-    perModel[key].cacheRead += Number(t.cache?.read) || Number(t.cache_read) || 0;
-    perModel[key].cacheWrite += Number(t.cache?.write) || Number(t.cache_write) || 0;
-    perModel[key].reasoning += Number(t.reasoning) || 0;
   }
-  msgSt.free();
+  st1.free();
 
+  // ---- Strategy 2: timestamp-based fallback ----
+  const needFallback = switchedIds.filter(sid =>
+    !Object.keys(perModel).some(k => k.startsWith(sid + '::'))
+  );
+  if (needFallback.length > 0) {
+    // Build timeline: session → [{time, model}, ...]
+    const timeline = {};
+    for (const sid of needFallback) {
+      timeline[sid] = [];
+      const sRow = db.exec('SELECT model FROM session WHERE id = ?', [sid]);
+      if (sRow.length > 0 && sRow[0].values.length > 0) {
+        try {
+          const p = JSON.parse(sRow[0].values[0][0] || '{}');
+          if (p.id) timeline[sid].push({ time: 0, model: p.id, provider: p.providerID || '' });
+        } catch {}
+      }
+    }
+
+    const fb1 = db.prepare(`
+      SELECT session_id, data FROM session_message
+      WHERE (${needFallback.map(() => "session_id LIKE ? || '%'").join(' OR ')}) AND type = 'model-switched'
+      ORDER BY session_id, json_extract(data, '$.time.created') ASC
+    `);
+    fb1.bind(needFallback);
+    while (fb1.step()) {
+      const r = fb1.getAsObject();
+      let d = {};
+      try { d = JSON.parse(r.data || '{}'); } catch {}
+      const mi = d.model;
+      if (!mi || !mi.id) continue;
+      const time = (d.time && d.time.created) ? Number(d.time.created) : 0;
+      const sid = matchSession(r.session_id);
+      if (timeline[sid]) timeline[sid].push({ time, model: mi.id, provider: mi.providerID || '' });
+    }
+    fb1.free();
+
+    const fb2 = db.prepare(`
+      SELECT session_id, time_created, data FROM message
+      WHERE (${needFallback.map(() => "session_id LIKE ? || '%'").join(' OR ')})
+        AND json_extract(data, '$.role') = 'assistant'
+      ORDER BY session_id, time_created ASC
+    `);
+    fb2.bind(needFallback);
+    while (fb2.step()) {
+      const r = fb2.getAsObject();
+      let d = {};
+      try { d = JSON.parse(r.data || '{}'); } catch {}
+      const msgTime = Number(r.time_created) || 0;
+      const sid = matchSession(r.session_id);
+      const tl = timeline[sid] || [];
+      let active = tl[0];
+      for (const e of tl) {
+        if (msgTime >= e.time) active = e;
+      }
+      if (!active) continue;
+      const key = sid + '::' + active.model;
+      if (!perModel[key]) {
+        perModel[key] = { sessionId: sid, model: active.model, provider: active.provider || '', cost: 0 };
+      }
+      const t = d.tokens || {};
+      perModel[key].cost += Number(d.cost) || 0;
+    }
+    fb2.free();
+  }
+
+  // ---- Split exchanges ----
   const switchedSet = new Set(switchedIds);
   const kept = [];
   const exchangeBySession = {};
   for (const ex of exchanges) {
     if (switchedSet.has(ex.sessionId)) {
-      if (!exchangeBySession[ex.sessionId]) exchangeBySession[ex.sessionId] = [];
-      exchangeBySession[ex.sessionId].push(ex);
+      (exchangeBySession[ex.sessionId] = exchangeBySession[ex.sessionId] || []).push(ex);
     } else {
       kept.push(ex);
     }
   }
-
   for (const [sid, sessionExchanges] of Object.entries(exchangeBySession)) {
     const orig = sessionExchanges[0];
     const models = Object.values(perModel).filter(p => p.sessionId === sid);
     const totalMsgCost = models.reduce((s, m) => s + m.cost, 0);
-
     if (totalMsgCost > 0) {
       for (const pm of models) {
         const ratio = pm.cost / totalMsgCost;
@@ -374,7 +441,7 @@ async function readSessionDetail({ sessionId, homeDir }) {
     const msgStmt = db.prepare(`
       SELECT id, session_id, time_created, data
       FROM message
-      WHERE session_id = ?
+      WHERE session_id LIKE ? || '%'
       ORDER BY time_created ASC, id ASC
     `);
     msgStmt.bind([sessionId]);
@@ -396,7 +463,7 @@ async function readSessionDetail({ sessionId, homeDir }) {
     const partStmt = db.prepare(`
       SELECT id, message_id, session_id, time_created, data
       FROM part
-      WHERE session_id = ?
+      WHERE session_id LIKE ? || '%'
       ORDER BY time_created ASC, id ASC
     `);
     partStmt.bind([sessionId]);

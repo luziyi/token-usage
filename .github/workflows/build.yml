@@ -1,0 +1,55 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check compilation
+        run: npm run check
+
+      - name: Build portable executable
+        run: npm run build
+
+      - name: Generate release tag
+        id: tag
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=v${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.version }}
+          name: Token Usage ${{ steps.tag.outputs.version }}
+          body: |
+            ## 变更
+
+            请在此处填写本次发布的变更内容。
+
+            ### 使用方式
+
+            下载 `Token Usage.exe` 后双击运行即可。
+          files: |
+            dist/*.exe
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

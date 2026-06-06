@@ -2,22 +2,30 @@
   "name": "token-usage",
   "productName": "Token Usage",
   "version": "1.0.0",
-  "description": "Accurate local token usage & cost tracker for AI coding tools — Claude Code, Codex, OpenCode, Cursor",
+  "description": "本地优先的 OpenCode Token 消耗监控与费用计算桌面工具",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron ."
+    "dev": "electron .",
+    "build": "electron-builder --win portable",
+    "check": "node -e \"require('./src/calculator');require('./src/pricing');require('./src/store');console.log('✓ check passed')\""
+  },
+  "build": {
+    "appId": "com.token-usage.app",
+    "productName": "Token Usage",
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "assets/icon.png"
+    }
   },
   "keywords": [
-    "token-usage",
-    "token-count",
-    "claude-code",
-    "codex",
-    "opencode",
-    "cursor",
-    "electron",
-    "desktop-widget",
-    "local-first"
+    "token-usage", "token-count", "opencode", "electron", "desktop-widget", "local-first"
   ],
   "author": "",
   "license": "MIT",
@@ -28,6 +36,7 @@
     "sql.js": "^1.11.0"
   },
   "devDependencies": {
-    "electron": "42.2.0"
+    "electron": "42.2.0",
+    "electron-builder": "^26.15.0"
   }
 }
