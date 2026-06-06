@@ -1,0 +1,33 @@
+{
+  "name": "token-usage",
+  "productName": "Token Usage",
+  "version": "1.0.0",
+  "description": "Accurate local token usage & cost tracker for AI coding tools — Claude Code, Codex, OpenCode, Cursor",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron ."
+  },
+  "keywords": [
+    "token-usage",
+    "token-count",
+    "claude-code",
+    "codex",
+    "opencode",
+    "cursor",
+    "electron",
+    "desktop-widget",
+    "local-first"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@lobehub/icons": "^5.10.0",
+    "@lobehub/icons-static-svg": "^1.91.0",
+    "chokidar": "^3.6.0",
+    "sql.js": "^1.11.0"
+  },
+  "devDependencies": {
+    "electron": "42.2.0"
+  }
+}

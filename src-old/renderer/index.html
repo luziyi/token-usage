@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Token Usage</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="titlebar">
+        <div>
+          <div class="app-title">
+            <span class="app-title-text">Token Usage</span>
+            <span id="liveDot" class="live-dot" title="Status"></span>
+          </div>
+          <div id="status" class="status">Initializing...</div>
+        </div>
+        <div class="title-controls">
+          <nav class="tabs" aria-label="Period tabs">
+            <button class="tab active" data-period="today">DAY</button>
+            <button class="tab" data-period="month">MONTH</button>
+            <button class="tab" data-period="allTime">TOTAL</button>
+          </nav>
+          <div class="window-actions">
+            <button id="pinButton" class="icon-button" title="Always on top">&#8679;</button>
+            <button id="settingsButton" class="icon-button" title="Settings">&#9881;</button>
+            <button id="minButton" class="icon-button" title="Minimize">&#8722;</button>
+            <button id="closeButton" class="icon-button" title="Close">&#10005;</button>
+          </div>
+        </div>
+        <div class="title-row">
+          <div class="breakdown-toggle-group">
+            <button class="breakdown-btn active" data-breakdown="tool">Tool</button>
+            <button class="breakdown-btn" data-breakdown="model">Model</button>
+            <button class="breakdown-btn" data-breakdown="session">Session</button>
+          </div>
+        </div>
+      </header>
+
+      <section id="settingsPanel" class="settings-panel hidden">
+        <div class="settings-group">
+          <div class="settings-group-header">Tools</div>
+          <label><span>Tracked tools</span>
+            <input id="clientsInput" type="text" spellcheck="false" placeholder="claude,codex,opencode" />
+          </label>
+        </div>
+        <div class="settings-group">
+          <div class="settings-group-header">Display</div>
+          <label><span>Currency</span>
+            <select id="currencyInput">
+              <option value="USD">USD</option>
+              <option value="CNY">CNY</option>
+              <option value="TWD">TWD</option>
+              <option value="HKD">HKD</option>
+            </select>
+          </label>
+          <label><span>Refresh interval (ms)</span>
+            <select id="refreshInput">
+              <option value="5000">5s</option>
+              <option value="15000">15s</option>
+              <option value="30000">30s</option>
+              <option value="60000">60s</option>
+              <option value="120000">2min</option>
+              <option value="300000">5min</option>
+            </select>
+          </label>
+        </div>
+        <div class="settings-group">
+          <div class="settings-group-header">Appearance</div>
+          <label class="checkbox-label"><input id="systemGlassInput" type="checkbox" /> System Glass</label>
+          <label class="checkbox-label"><input id="liveDotInput" type="checkbox" /> Live Indicator</label>
+          <label class="checkbox-label"><input id="toolIconsInput" type="checkbox" /> Tool Icons</label>
+          <label><span>Glass</span><input id="glassInput" type="range" min="0" max="100" step="1" /></label>
+          <label><span>Depth</span><input id="blurInput" type="range" min="0" max="100" step="1" /></label>
+          <label><span>Zoom</span><input id="zoomInput" type="range" min="70" max="160" step="5" /></label>
+        </div>
+        <div class="settings-actions">
+          <button id="saveSettingsButton">Save</button>
+          <button id="advancedSettingsButton" data-action="openConfig">Open Config</button>
+        </div>
+      </section>
+
+      <section class="total-panel">
+        <div class="label-row"><span>TOTAL TOKENS</span></div>
+        <div id="totalTokens" class="total-number">0</div>
+        <div id="cost" class="cost">$0.00</div>
+      </section>
+
+      <section id="breakdown" class="breakdown"></section>
+      <section id="session-detail" class="session-detail hidden"></section>
+
+      <footer class="footer">
+        <button id="breakdownToggle" class="mode-button">0 sources</button>
+        <button id="refreshButton" class="refresh-button" title="Refresh">&#8635;</button>
+      </footer>
+    </main>
+    <script src="i18n.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

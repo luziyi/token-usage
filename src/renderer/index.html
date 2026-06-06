@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#16181c" />
+    <title>Token Usage</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="titlebar">
+        <div class="title-left">
+          <div class="app-title">
+            <span class="app-title-icon" aria-hidden="true">&#9670;</span>
+            <span class="app-title-text">Token Usage</span>
+            <span id="liveDot" class="live-dot" title="Status"></span>
+          </div>
+          <div id="status" class="status">初始化中...</div>
+        </div>
+        <div class="title-controls">
+          <nav class="tabs" aria-label="时间周期">
+            <button class="tab active" data-period="today">今日</button>
+            <button class="tab" data-period="month">本月</button>
+            <button class="tab" data-period="allTime">总计</button>
+          </nav>
+          <div class="window-actions">
+            <button id="maxButton" class="icon-button" aria-label="最大化">&#9744;</button>
+            <button id="minButton" class="icon-button" aria-label="最小化">&#8722;</button>
+            <button id="closeButton" class="icon-button" aria-label="关闭">&#10005;</button>
+          </div>
+        </div>
+      </header>
+
+      <section class="total-panel">
+        <div class="total-header">
+          <button id="breakdownToggle" class="toggle-btn" aria-label="切换分组方式">
+            <span id="breakdownLabel">模型</span>
+            <span class="toggle-arrow" aria-hidden="true">&#9660;</span>
+          </button>
+          <div class="total-header-right">
+            <button id="refreshButton" class="icon-button-sm" aria-label="刷新">&#8635;</button>
+            <button id="settingsButton" class="icon-button-sm" aria-label="设置">&#9881;</button>
+          </div>
+        </div>
+        <div id="totalTokens" class="total-number" aria-live="polite">0</div>
+        <div id="cost" class="cost">$0.00</div>
+        <div id="tokenBreakdown" class="token-breakdown">
+          <span id="inputLabel">IN 0</span>
+          <span id="outputLabel">OUT 0</span>
+          <span id="cacheReadLabel">CACHE 0</span>
+        </div>
+      </section>
+
+      <section id="settingsPanel" class="settings-panel hidden">
+        <div class="settings-group">
+          <div class="settings-group-header">显示设置</div>
+          <label><span>币种</span>
+            <select id="currencyInput">
+              <option value="USD">USD ($)</option>
+              <option value="CNY">CNY (¥)</option>
+            </select>
+          </label>
+          <label><span>刷新间隔</span>
+            <select id="refreshInput">
+              <option value="2000">2s</option>
+              <option value="5000">5s</option>
+              <option value="10000">10s</option>
+              <option value="30000">30s</option>
+              <option value="60000">60s</option>
+            </select>
+          </label>
+        </div>
+        <div class="settings-actions">
+          <button id="saveSettingsButton">保存</button>
+        </div>
+      </section>
+
+      <section id="breakdown" class="breakdown"></section>
+
+      <section id="session-detail" class="session-detail hidden"></section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
