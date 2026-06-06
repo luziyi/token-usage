@@ -8,22 +8,22 @@
 
 :root {
   color-scheme: dark;
-  --bg: rgba(22, 24, 30, 0.72);
-  --bg-soft: rgba(255, 255, 255, 0.05);
-  --bg-hover: rgba(255, 255, 255, 0.08);
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.18);
-  --text: #eef3f8;
-  --text-muted: #8b98a8;
-  --text-dim: #5c6878;
-  --accent: #7dabf0;
-  --accent-green: #7dcca8;
-  --accent-orange: #e8a66a;
-  --accent-purple: #a88de8;
-  --accent-red: #e86a7a;
-  --card-bg: rgba(255, 255, 255, 0.04);
-  --glass-edge: rgba(255, 255, 255, 0.15);
-  --glass-shimmer: rgba(255, 255, 255, 0.03);
+  --bg: rgba(30, 32, 38, 0.35);
+  --bg-soft: rgba(255, 255, 255, 0.06);
+  --bg-hover: rgba(255, 255, 255, 0.1);
+  --border: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.22);
+  --text: #f5f7fa;
+  --text-muted: #9aa5b4;
+  --text-dim: #6b7785;
+  --accent: #5e9eff;
+  --accent-green: #6dd4a8;
+  --accent-orange: #f5a86a;
+  --accent-purple: #b894f5;
+  --accent-red: #f57a8a;
+  --card-bg: rgba(255, 255, 255, 0.05);
+  --glass-edge: rgba(255, 255, 255, 0.25);
+  --glass-shimmer: rgba(255, 255, 255, 0.08);
 }
 
 * {
@@ -71,21 +71,23 @@ body {
   flex-direction: column;
   width: 100%;
   height: 100%;
-  padding: 10px 12px 10px;
-  padding: 10px calc(12px + env(safe-area-inset-right)) 10px calc(12px + env(safe-area-inset-left));
+  padding: 16px 18px;
   overflow: hidden;
   isolation: isolate;
   background:
-    radial-gradient(ellipse 140% 80% at 20% 0%, rgba(100, 160, 240, 0.08), transparent 70%),
-    radial-gradient(ellipse 100% 60% at 80% 100%, rgba(120, 200, 160, 0.05), transparent 60%),
+    radial-gradient(ellipse 180% 120% at 15% 0%, rgba(94, 158, 255, 0.18), transparent 60%),
+    radial-gradient(ellipse 140% 100% at 85% 100%, rgba(109, 212, 168, 0.12), transparent 55%),
+    radial-gradient(ellipse 100% 80% at 50% 50%, rgba(184, 148, 245, 0.08), transparent 70%),
     var(--bg);
   border: 1px solid var(--border-strong);
-  border-radius: 14px;
+  border-radius: 20px;
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 var(--glass-edge);
-  -webkit-backdrop-filter: blur(48px) saturate(120%);
-  backdrop-filter: blur(48px) saturate(120%);
+    0 20px 60px rgba(0, 0, 0, 0.5),
+    0 8px 24px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 var(--glass-edge),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+  -webkit-backdrop-filter: blur(72px) saturate(140%);
+  backdrop-filter: blur(72px) saturate(140%);
 }
 
 .shell::before {
@@ -94,8 +96,14 @@ body {
   top: 0;
   left: 0;
   right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--glass-edge), transparent);
+  height: 2px;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(255, 255, 255, 0.3) 20%,
+    rgba(255, 255, 255, 0.4) 50%,
+    rgba(255, 255, 255, 0.3) 80%,
+    transparent 100%
+  );
   z-index: 1;
 }
 
@@ -105,7 +113,11 @@ body {
   inset: 0;
   pointer-events: none;
   border-radius: inherit;
-  background: linear-gradient(180deg, var(--glass-shimmer) 0%, transparent 40%);
+  background: linear-gradient(180deg, 
+    var(--glass-shimmer) 0%, 
+    rgba(255, 255, 255, 0.02) 30%,
+    transparent 60%
+  );
 }
 
 .hidden {
@@ -117,8 +129,8 @@ body {
   flex-direction: column;
   gap: 6px;
   -webkit-app-region: drag;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   position: relative;
   z-index: 2;
 }
@@ -173,9 +185,12 @@ body {
 .tabs {
   display: flex;
   gap: 2px;
-  background: var(--card-bg);
-  border-radius: 6px;
-  padding: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
 }
 
 .tab {
@@ -186,22 +201,26 @@ body {
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 4px;
+  padding: 6px 12px;
+  border-radius: 9px;
   cursor: pointer;
-  transition: color 0.15s, background 0.15s;
+  transition: color 0.2s, background 0.2s, transform 0.15s;
 }
 
 .tab:hover {
   color: var(--text);
-  background: var(--bg-hover);
+  background: rgba(255, 255, 255, 0.08);
 }
 .tab:active {
-  transform: scale(0.96);
+  transform: scale(0.95);
+  background: rgba(255, 255, 255, 0.12);
 }
 .tab.active {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.15);
   color: var(--text);
+  box-shadow: 
+    0 2px 8px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .window-actions {
@@ -213,39 +232,44 @@ body {
 .icon-button-sm {
   -webkit-appearance: none;
   appearance: none;
-  background: transparent;
-  border: 0;
-  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
   cursor: pointer;
-  border-radius: 4px;
-  transition: color 0.15s, background 0.15s, transform 0.1s;
+  border-radius: 10px;
+  transition: color 0.2s, background 0.2s, transform 0.15s, box-shadow 0.2s;
   display: flex;
   align-items: center;
   justify-content: center;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .icon-button {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   font-size: 12px;
 }
 
 .icon-button-sm {
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   font-size: 11px;
 }
 
 .icon-button:hover,
 .icon-button-sm:hover {
   color: var(--text);
-  background: var(--bg-hover);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .icon-button:active,
 .icon-button-sm:active {
-  transform: scale(0.92);
-  background: var(--bg-soft);
+  transform: scale(0.9);
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 /* Total Panel */
@@ -264,23 +288,31 @@ body {
 .toggle-btn {
   -webkit-appearance: none;
   appearance: none;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 5px;
+  padding: 5px 10px;
+  border-radius: 10px;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 4px;
-  transition: color 0.15s, background 0.15s;
+  transition: color 0.2s, background 0.2s, transform 0.15s;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .toggle-btn:hover {
-  background: var(--bg-hover);
+  background: rgba(255, 255, 255, 0.14);
   color: var(--text);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.toggle-btn:active {
+  transform: scale(0.95);
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .toggle-arrow {
@@ -352,18 +384,23 @@ body {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  transition: background 0.1s;
+  padding: 8px 10px;
+  border-radius: 12px;
+  transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
   cursor: pointer;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .row:hover {
-  background: var(--bg-hover);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .row:active {
-  background: var(--bg-soft);
+  background: rgba(255, 255, 255, 0.12);
+  transform: scale(0.98);
 }
 
 .row-head {
@@ -436,30 +473,38 @@ body {
 }
 
 .bar {
-  height: 2px;
-  background: var(--border);
-  border-radius: 2px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
   overflow: hidden;
 }
 
 .bar-fill {
   height: 100%;
-  border-radius: 2px;
+  border-radius: 3px;
   transition: width 0.4s ease;
+  background: linear-gradient(90deg, 
+    rgba(255, 255, 255, 0.3) 0%, 
+    rgba(255, 255, 255, 0.5) 100%
+  );
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
 }
 
 /* Settings Panel */
 .settings-panel {
-  background: rgba(18, 20, 24, 0.85);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px;
+  background: rgba(30, 32, 38, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  padding: 14px;
   margin: 4px 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(48px) saturate(130%);
+  -webkit-backdrop-filter: blur(48px) saturate(130%);
+  box-shadow: 
+    0 8px 24px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .settings-group {
@@ -494,38 +539,44 @@ body {
 
 .settings-group select {
   flex: 1;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 5px 8px;
   color: var(--text);
   font-size: 11px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .settings-group select:focus {
   border-color: var(--accent);
   outline: none;
+  box-shadow: 0 0 0 2px rgba(94, 158, 255, 0.2);
 }
 
 .settings-actions button {
   -webkit-appearance: none;
   appearance: none;
   background: var(--accent);
-  border: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
   color: white;
   font-size: 11px;
   font-weight: 600;
-  padding: 5px 14px;
-  border-radius: 5px;
+  padding: 6px 16px;
+  border-radius: 10px;
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: opacity 0.2s, transform 0.15s, box-shadow 0.2s;
+  box-shadow: 0 2px 8px rgba(94, 158, 255, 0.3);
 }
 
 .settings-actions button:hover {
-  opacity: 0.85;
+  opacity: 0.9;
+  box-shadow: 0 4px 12px rgba(94, 158, 255, 0.4);
 }
 .settings-actions button:active {
-  transform: scale(0.96);
+  transform: scale(0.95);
+  box-shadow: 0 1px 4px rgba(94, 158, 255, 0.3);
 }
 
 /* Session Detail */
@@ -561,19 +612,26 @@ body {
 .detail-back {
   -webkit-appearance: none;
   appearance: none;
-  background: transparent;
-  border: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   color: var(--accent);
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 4px;
-  transition: background 0.15s;
+  padding: 5px 10px;
+  border-radius: 10px;
+  transition: background 0.2s, transform 0.15s;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .detail-back:hover {
-  background: var(--bg-hover);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.detail-back:active {
+  transform: scale(0.95);
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .detail-info {
@@ -586,13 +644,20 @@ body {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding: 6px 8px;
-  border-radius: 5px;
-  transition: background 0.1s;
+  padding: 8px 10px;
+  border-radius: 12px;
+  transition: background 0.2s, transform 0.15s;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .detail-exchange:hover {
-  background: var(--bg-hover);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.detail-exchange:active {
+  transform: scale(0.98);
 }
 
 .detail-ex-head {
@@ -683,10 +748,12 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  padding: 3px 4px 3px 8px;
-  border-left: 2px solid var(--border);
+  padding: 4px 6px 4px 10px;
+  border-left: 2px solid rgba(255, 255, 255, 0.15);
   font-size: 10px;
   color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 0 8px 8px 0;
 }
 
 .detail-turn-label {
@@ -752,32 +819,40 @@ body {
   position: absolute;
   top: 100%;
   left: 0;
-  background: rgba(22, 24, 30, 0.9);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  padding: 3px;
+  background: rgba(30, 32, 38, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 14px;
+  padding: 4px;
   z-index: 100;
-  min-width: 90px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(32px);
-  -webkit-backdrop-filter: blur(32px);
+  min-width: 100px;
+  box-shadow: 
+    0 12px 32px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(48px) saturate(130%);
+  -webkit-backdrop-filter: blur(48px) saturate(130%);
 }
 
 .dropdown-item {
-  padding: 5px 10px;
-  font-size: 10px;
+  padding: 6px 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
-  border-radius: 4px;
+  border-radius: 10px;
   cursor: pointer;
-  transition: color 0.1s, background 0.1s;
+  transition: color 0.2s, background 0.2s, transform 0.15s;
 }
 
 .dropdown-item:hover {
-  background: var(--bg-hover);
+  background: rgba(255, 255, 255, 0.1);
   color: var(--text);
+}
+
+.dropdown-item:active {
+  transform: scale(0.96);
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .dropdown-item.active {
   color: var(--accent);
+  background: rgba(94, 158, 255, 0.12);
 }
