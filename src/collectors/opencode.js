@@ -153,6 +153,9 @@ async function collect({ period, allTimeSince, homeDir }) {
       });
     }
     stmt.free();
+
+    // --- Handle model-switched sessions ---
+    applyModelSwitchSplit(db, exchanges);
   } catch (err) {
     return { exchanges: [], sessions: [], error: err.message };
   } finally {
@@ -236,11 +239,110 @@ async function collectAll({ allTimeSince, homeDir }) {
       });
     }
     stmt.free();
+
+    applyModelSwitchSplit(db, exchanges);
   } catch {} finally {
     try { if (db) db.close(); } catch {}
   }
 
   return exchanges;
+}
+
+/**
+ * For sessions that had model-switched events, split their single exchange
+ * into per-model exchanges proportionally by per-message cost.
+ */
+function applyModelSwitchSplit(db, exchanges) {
+  const collectedIds = exchanges.map(e => e.sessionId).filter(Boolean);
+  if (collectedIds.length === 0) return;
+
+  const placeholders = collectedIds.map(() => '?').join(',');
+  const switchCheck = db.prepare(`SELECT DISTINCT session_id FROM session_message WHERE type = 'model-switched' AND session_id IN (${placeholders})`);
+  switchCheck.bind(collectedIds);
+  const switchedIds = [];
+  while (switchCheck.step()) {
+    const r = switchCheck.getAsObject();
+    if (r.session_id) switchedIds.push(r.session_id);
+  }
+  switchCheck.free();
+
+  if (switchedIds.length === 0) return;
+
+  const msgPlaceholders = switchedIds.map(() => '?').join(',');
+  const msgSt = db.prepare(`
+    SELECT session_id, data FROM message
+    WHERE session_id IN (${msgPlaceholders})
+      AND json_extract(data, '$.role') = 'assistant'
+      AND json_extract(data, '$.model.modelID') IS NOT NULL
+    ORDER BY session_id, time_created ASC
+  `);
+  msgSt.bind(switchedIds);
+
+  const perModel = {};
+  while (msgSt.step()) {
+    const r = msgSt.getAsObject();
+    let d = {};
+    try { d = JSON.parse(r.data || '{}'); } catch {}
+    const m = d.model;
+    if (!m) continue;
+    const mid = m.modelID || m.id || '';
+    if (!mid) continue;
+    const key = r.session_id + '::' + mid;
+    if (!perModel[key]) {
+      perModel[key] = {
+        sessionId: r.session_id, model: mid, provider: m.providerID || '',
+        cost: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0
+      };
+    }
+    const t = d.tokens || {};
+    perModel[key].cost += Number(d.cost) || 0;
+    perModel[key].input += Number(t.input) || 0;
+    perModel[key].output += Number(t.output) || 0;
+    perModel[key].cacheRead += Number(t.cache?.read) || Number(t.cache_read) || 0;
+    perModel[key].cacheWrite += Number(t.cache?.write) || Number(t.cache_write) || 0;
+    perModel[key].reasoning += Number(t.reasoning) || 0;
+  }
+  msgSt.free();
+
+  const switchedSet = new Set(switchedIds);
+  const kept = [];
+  const exchangeBySession = {};
+  for (const ex of exchanges) {
+    if (switchedSet.has(ex.sessionId)) {
+      if (!exchangeBySession[ex.sessionId]) exchangeBySession[ex.sessionId] = [];
+      exchangeBySession[ex.sessionId].push(ex);
+    } else {
+      kept.push(ex);
+    }
+  }
+
+  for (const [sid, sessionExchanges] of Object.entries(exchangeBySession)) {
+    const orig = sessionExchanges[0];
+    const models = Object.values(perModel).filter(p => p.sessionId === sid);
+    const totalMsgCost = models.reduce((s, m) => s + m.cost, 0);
+
+    if (totalMsgCost > 0) {
+      for (const pm of models) {
+        const ratio = pm.cost / totalMsgCost;
+        kept.push({
+          ...orig,
+          model: pm.model, modelClean: pm.model,
+          provider: pm.provider, providerLabel: getProviderLabel(pm.provider),
+          inputTokens: Math.round(orig.inputTokens * ratio),
+          outputTokens: Math.round(orig.outputTokens * ratio),
+          cacheReadInputTokens: Math.round(orig.cacheReadInputTokens * ratio),
+          cacheCreationInputTokens: Math.round(orig.cacheCreationInputTokens * ratio),
+          reasoningTokens: Math.round(orig.reasoningTokens * ratio),
+          costUsd: orig.costUsd * ratio,
+          costFromDb: orig.costUsd * ratio,
+        });
+      }
+    } else {
+      kept.push(orig);
+    }
+  }
+  exchanges.length = 0;
+  exchanges.push(...kept);
 }
 
 async function readSessionDetail({ sessionId, homeDir }) {
