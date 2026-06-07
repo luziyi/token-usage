@@ -34,8 +34,28 @@
     default: null,
   };
 
-  // Extracted icon colors, populated at startup from icon images
+  // Icon color cache — populated synchronously at startup with extracted icon colors
   const iconColorCache = new Map();
+
+  function initIconColors() {
+    // Real dominant colors extracted from each icon file
+    // (hardcoded so first render is correct — no async flash)
+    const iconColors = {
+      "deepseek.svg": "#4D6BFE",
+      "claude.svg": "#D97757",
+      "openai.svg": "#66bb6a",
+      "opencode.png": "#a6a6a6",
+      "qwen.svg": "#6336E7",
+      "minimax.svg": "#E2167E",
+      "gemini.svg": "#3186FF",
+      "google.svg": "#4285F4",
+      "anthropic.svg": "#ce93d8",
+      "meta.svg": "#0082FB",
+    };
+    for (const [file, color] of Object.entries(iconColors)) {
+      iconColorCache.set("icons/" + file, color);
+    }
+  }
 
   const MODEL_COLORS = {
     deepseek: "#4fc3f7",
@@ -193,7 +213,7 @@
       (d.getMonth() + 1) +
       "月" +
       d.getDate() +
-      "日 周" +
+      "日 星期" +
       days[d.getDay()]
     );
   }
@@ -240,62 +260,6 @@
     if (source === "opencode") return "icons/opencode.png";
     if (source === "claude-code") return "icons/claude.svg";
     return null;
-  }
-
-  function extractDominantColor(img) {
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    const w = img.naturalWidth || 64;
-    const h = img.naturalHeight || 64;
-    canvas.width = w;
-    canvas.height = h;
-    ctx.clearRect(0, 0, w, h);
-    ctx.drawImage(img, 0, 0, w, h);
-    try {
-      const data = ctx.getImageData(0, 0, w, h).data;
-      let bestR = 0,
-        bestG = 0,
-        bestB = 0,
-        bestSat = -1;
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i],
-          g = data[i + 1],
-          b = data[i + 2],
-          a = data[i + 3];
-        if (a < 128) continue;
-        const max = Math.max(r, g, b);
-        const min = Math.min(r, g, b);
-        const sat = max === 0 ? 0 : (max - min) / max;
-        if (sat > bestSat) {
-          bestR = r;
-          bestG = g;
-          bestB = b;
-          bestSat = sat;
-        }
-      }
-      return bestSat > 0
-        ? "rgb(" + bestR + "," + bestG + "," + bestB + ")"
-        : null;
-    } catch {
-      return null;
-    }
-  }
-
-  function preloadIconColors() {
-    const seen = new Set();
-    for (const val of Object.values(MODEL_ICONS)) {
-      if (!val || seen.has(val)) continue;
-      seen.add(val);
-      const path = "icons/" + val;
-      const img = new Image();
-      img.onload = () => {
-        const color = extractDominantColor(img);
-        if (color) iconColorCache.set(path, color);
-      };
-      img.onerror = () => {};
-      img.src = path;
-    }
   }
 
   function getProviderLabel(modelId) {
@@ -427,7 +391,7 @@
           sublabel: compactTime(s.timestamp),
           tokens: s.input + s.output + s.cacheRead + s.cacheWrite + s.reasoning,
           cost: s.cost,
-          detail: s.model + (s.provider ? " · " + s.provider : ""),
+          detail: "",
           color: sourceColor(s.source),
           sessionId: s.sessionId,
         }));
@@ -559,9 +523,9 @@
       );
     }
 
-    const sorted = [...exchanges].sort((a, b) =>
-      (a.startedAt || "").localeCompare(b.startedAt || ""),
-    );
+    const sorted = [...exchanges]
+      .filter((ex) => (ex.tokens?.total || 0) > 0)
+      .sort((a, b) => (a.startedAt || "").localeCompare(b.startedAt || ""));
     const maxValue = Math.max(1, ...sorted.map((r) => r.tokens?.total || 0));
 
     for (const ex of sorted) {
@@ -802,7 +766,7 @@
   }
 
   function init() {
-    preloadIconColors();
+    initIconColors();
     window.addEventListener("contextmenu", (e) => e.preventDefault());
     document.addEventListener("contextmenu", (e) => e.preventDefault());
     cacheElements();
