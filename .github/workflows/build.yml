@@ -7,7 +7,17 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        include:
+          - os: windows-latest
+            ext: .exe
+          - os: ubuntu-latest
+            ext: .AppImage
+          - os: macos-latest
+            ext: .dmg
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: write
 
@@ -27,21 +37,49 @@ jobs:
       - name: Check compilation
         run: npm run check
 
-      - name: Build portable executable
+      - name: Build ${{ matrix.os }}
         run: npm run build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TokenUsage-${{ matrix.os }}
+          path: dist/*${{ matrix.ext }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+          merge-multiple: true
 
       - name: Generate release tag
         id: tag
         shell: bash
         run: |
           BASE_VERSION=$(node -p "require('./package.json').version")
-          echo "version=${BASE_VERSION}.${{ github.run_number }}" >> $GITHUB_OUTPUT
+          MAJOR_MINOR=$(echo "$BASE_VERSION" | cut -d. -f1,2)
+          echo "version=${MAJOR_MINOR}.${{ github.run_number }}" >> $GITHUB_OUTPUT
+
+      - name: List artifacts
+        shell: bash
+        run: ls -lhR dist-artifacts/
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.tag.outputs.version }}
-          name: Token Usage ${{ steps.tag.outputs.version }}
+          name: Token Usage v${{ steps.tag.outputs.version }}
           body: |
             ## 变更
 
@@ -49,9 +87,15 @@ jobs:
 
             ### 使用方式
 
-            下载 `Token Usage.exe` 后双击运行即可。
+            下载对应系统的文件后运行即可。
+
+            | 系统 | 文件 |
+            |------|------|
+            | Windows | TokenUsage-win.exe |
+            | macOS | TokenUsage-mac.dmg |
+            | Linux | TokenUsage-linux.AppImage |
           files: |
-            dist/*.exe
+            dist-artifacts/*
           draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
