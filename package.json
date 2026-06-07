@@ -1,7 +1,7 @@
 {
   "name": "token-usage",
   "productName": "Token Usage",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "本地优先的 OpenCode Token 消耗监控与费用计算桌面工具",
   "main": "src/main.js",
   "scripts": {
@@ -25,7 +25,12 @@
     }
   },
   "keywords": [
-    "token-usage", "token-count", "opencode", "electron", "desktop-widget", "local-first"
+    "token-usage",
+    "token-count",
+    "opencode",
+    "electron",
+    "desktop-widget",
+    "local-first"
   ],
   "author": "",
   "license": "MIT",

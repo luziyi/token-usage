@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const { calculateExchangeCost } = require('../calculator');
 
 let sqlJsPromise = null;
 function getSqlJs() {
@@ -29,7 +30,10 @@ function getDateKey(ts) {
   if (!ts) return 'unknown';
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return 'unknown';
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
 }
 
 function getProviderLabel(providerId) {
@@ -150,6 +154,7 @@ async function collect({ period, allTimeSince, homeDir }) {
         sessionTitle: row.title || '',
         dirName: row.directory || '',
         projectId: row.project_id || '',
+        source: 'opencode',
       });
     }
     stmt.free();
@@ -236,6 +241,7 @@ async function collectAll({ allTimeSince, homeDir }) {
         costUsd: cost, costFromDb: cost,
         sessionTitle: row.title || '', dirName: row.directory || '',
         projectId: row.project_id || '',
+        source: 'opencode',
       });
     }
     stmt.free();
@@ -481,6 +487,17 @@ async function readSessionDetail({ sessionId, homeDir }) {
 
     const exchanges = [];
     let current = null;
+    // Parse session model (may be JSON like {"id":"model","providerID":"provider"} or plain string)
+    let sessionModel = '', sessionProvider = '';
+    if (sessionInfo && sessionInfo.model) {
+      try {
+        const parsed = JSON.parse(sessionInfo.model);
+        sessionModel = parsed.id || parsed.model || '';
+        sessionProvider = parsed.providerID || '';
+      } catch {
+        sessionModel = String(sessionInfo.model).trim();
+      }
+    }
 
     for (const msg of messages) {
       const role = (msg.role || '').toLowerCase();
@@ -493,6 +510,8 @@ async function readSessionDetail({ sessionId, homeDir }) {
       const tokens = msg.tokens || {};
       const cost = msg.cost || 0;
       const ts = msg.timeCreated ? msToIso(msg.timeCreated) : '';
+      const turnModel = msg.model || sessionModel;
+      const turnProvider = msg.provider || msg.providerID || sessionProvider;
 
       if (role === 'user') {
         if (!text && fileParts.length === 0) continue;
@@ -534,9 +553,12 @@ async function readSessionDetail({ sessionId, homeDir }) {
           exchanges.push(current);
         }
 
+        const turnCost = cost || calculateExchangeCost(tInput, tOutput, tCacheRead, tCacheWrite, tReasoning, turnModel, turnProvider);
         current.turns.push({
           tokens: turnTokens,
-          costEstimate: cost,
+          costEstimate: turnCost,
+          model: turnModel,
+          provider: turnProvider,
           tools: tools
         });
         current.turnCount++;
@@ -545,7 +567,7 @@ async function readSessionDetail({ sessionId, homeDir }) {
         current.tokens.cacheWrite += tCacheWrite;
         current.tokens.reasoning += tReasoning;
         current.tokens.total += turnTokens.total;
-        current.costEstimate += cost;
+        current.costEstimate += turnCost;
         if (tools.length > 0) current.tools.push(...tools);
       }
     }

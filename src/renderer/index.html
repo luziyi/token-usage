@@ -32,6 +32,14 @@
         </div>
       </header>
 
+      <!-- theme color CSS -->
+      <style>
+        .color-swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+        .color-swatch { width: 24px; height: 24px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; transition: border-color 0.15s, transform 0.1s; padding: 0; }
+        .color-swatch:hover { transform: scale(1.15); }
+        .color-swatch.active { border-color: var(--text); }
+      </style>
+
       <section class="total-panel">
         <div class="total-header">
           <button id="breakdownToggle" class="toggle-btn" aria-label="切换分组方式">
@@ -39,8 +47,8 @@
             <span class="toggle-arrow" aria-hidden="true">&#9660;</span>
           </button>
           <div class="total-header-right">
-            <button id="refreshButton" class="icon-button-sm" aria-label="刷新">&#8635;</button>
-            <button id="settingsButton" class="icon-button-sm" aria-label="设置">&#9881;</button>
+            <button id="refreshButton" class="icon-button-sm" aria-label="刷新"><span class="refresh-icon">&#8635;</span></button>
+            <button id="settingsButton" class="icon-button-sm" aria-label="设置"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
           </div>
         </div>
         <div id="totalTokens" class="total-number" aria-live="polite">0</div>
@@ -55,7 +63,7 @@
       <section id="settingsPanel" class="settings-panel hidden">
         <div class="settings-panel-title">
           <span>偏好设置</span>
-          <span class="settings-panel-sub">币种与刷新频率</span>
+          <span class="settings-panel-sub">币种、主题与刷新频率</span>
         </div>
         <div class="settings-fields">
           <div class="settings-field">
@@ -79,6 +87,18 @@
                 <option value="60000">60 秒</option>
               </select>
               <span class="settings-select-arrow">&#9660;</span>
+            </div>
+          </div>
+        </div>
+          <div class="settings-field">
+            <div class="settings-field-label">主题色</div>
+            <div class="color-swatches" id="colorSwatches">
+              <button class="color-swatch" data-color="#5e9eff" style="background:#5e9eff" title="默认蓝"></button>
+              <button class="color-swatch" data-color="#9d80e8" style="background:#9d80e8" title="紫色"></button>
+              <button class="color-swatch" data-color="#5dbe8a" style="background:#5dbe8a" title="绿色"></button>
+              <button class="color-swatch" data-color="#e8965a" style="background:#e8965a" title="橙色"></button>
+              <button class="color-swatch" data-color="#e8606a" style="background:#e8606a" title="红色"></button>
+              <button class="color-swatch" data-color="#4fc3f7" style="background:#4fc3f7" title="青色"></button>
             </div>
           </div>
         </div>
