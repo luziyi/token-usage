@@ -34,13 +34,13 @@ jobs:
         id: tag
         shell: bash
         run: |
-          VERSION=$(node -p "require('./package.json').version")
-          echo "version=v${VERSION}" >> $GITHUB_OUTPUT
+          BASE_VERSION=$(node -p "require('./package.json').version")
+          echo "version=${BASE_VERSION}.${{ github.run_number }}" >> $GITHUB_OUTPUT
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.version }}
+          tag_name: v${{ steps.tag.outputs.version }}
           name: Token Usage ${{ steps.tag.outputs.version }}
           body: |
             ## 变更
