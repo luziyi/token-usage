@@ -20,9 +20,18 @@
       "package.json"
     ],
     "win": {
-      "target": "portable",
+      "target": ["portable", "nsis"],
       "icon": "assets/icon.png",
       "artifactName": "${productName}-win.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Token Usage",
+      "uninstallDisplayName": "Token Usage ${version}",
+      "artifactName": "${productName}-setup-${version}.${ext}"
     },
     "mac": {
       "target": "dmg",

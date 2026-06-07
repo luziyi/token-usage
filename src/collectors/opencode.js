@@ -2,19 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { calculateExchangeCost } = require('../calculator');
-
-let sqlJsPromise = null;
-function getSqlJs() {
-  if (!sqlJsPromise) {
-    try {
-      const initSqlJs = require('sql.js');
-      sqlJsPromise = initSqlJs();
-    } catch {
-      sqlJsPromise = Promise.reject(new Error('sql.js not available'));
-    }
-  }
-  return sqlJsPromise;
-}
+const { getSqlJs } = require('../persist');
 
 function opencodeDbPath(home) {
   return path.join(home, '.local', 'share', 'opencode', 'opencode.db');

@@ -341,9 +341,9 @@ async function runTick(reason) {
   }
 }
 
-function startCollector() {
+function startCollector(skipImmediate) {
   stopCollector();
-  runTick("start");
+  if (!skipImmediate) runTick("start");
   watchDbFiles();
   const intervalMs = Math.max(
     2000,
@@ -424,30 +424,50 @@ function setupIPC() {
   }));
 }
 
+function pushToRenderer(data, settingsOverride, at) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("data:push", {
+      data,
+      settings: settingsOverride || settingsForRenderer(),
+      at: at || new Date().toISOString(),
+    });
+  }
+}
+
 app.whenReady().then(async () => {
   settings = readSettings();
   await persist.init();
-
-  // Clean up old stats-cache entries from DB (no longer parsed)
   persist.removeStatsCacheEntries();
-
   setupIPC();
   createWindow();
 
-  // On first run, seed DB with all current data
+  // Fast path: show cached data from local DB immediately (no source file reads)
   const existing = persist.readAllExchanges();
-  if (existing.length === 0) {
-    try {
-      const seed = await collectRawExchanges({
-        allTimeSince: settings.allTimeSince,
-        homeDir: os.homedir(),
-      });
-      persist.upsertExchanges(seed);
-      persist.saveToDisk();
-    } catch {}
+  if (existing.length > 0) {
+    lastCollected = buildPeriodData(existing, settings.allTimeSince);
+    pushToRenderer(lastCollected);
   }
 
-  startCollector();
+  // Defer source file reading so the window renders first
+  setTimeout(async () => {
+    if (existing.length === 0) {
+      // First run: seed DB from sources once, then start collector without re-reading
+      try {
+        const seed = await collectRawExchanges({
+          allTimeSince: settings.allTimeSince,
+          homeDir: os.homedir(),
+        });
+        persist.upsertExchanges(seed);
+        persist.saveToDisk();
+        lastCollected = buildPeriodData(seed, settings.allTimeSince);
+        pushToRenderer(lastCollected);
+      } catch {}
+      startCollector(true); // skip immediate tick — seed already has fresh data
+    } else {
+      // Sync from sources in background, user already sees cached data
+      startCollector();
+    }
+  }, 50);
 });
 
 app.on("second-instance", () => {

@@ -3,13 +3,20 @@ const fs = require('node:fs');
 const os = require('node:os');
 const initSqlJs = require('sql.js');
 
+// Shared sql.js WASM instance — used by persist and opencode collector
+let sqlWasm = null;
+async function getSqlJs() {
+  if (!sqlWasm) sqlWasm = await initSqlJs();
+  return sqlWasm;
+}
+
 const DB_DIR = path.join(os.homedir(), '.token-usage');
 const DB_PATH = path.join(DB_DIR, 'data.db');
 
 let db = null;
 
 async function init() {
-  const SQL = await initSqlJs();
+  const SQL = await getSqlJs();
   fs.mkdirSync(DB_DIR, { recursive: true });
 
   let buffer;
@@ -141,4 +148,4 @@ function close() {
   if (db) { db.close(); db = null; }
 }
 
-module.exports = { init, saveToDisk, upsertExchanges, readAllExchanges, removeStatsCacheEntries, close };
+module.exports = { init, saveToDisk, upsertExchanges, readAllExchanges, removeStatsCacheEntries, close, getSqlJs };
