@@ -22,7 +22,7 @@
     "win": {
       "target": ["portable", "nsis"],
       "icon": "assets/icon.png",
-      "artifactName": "${productName}-win.${ext}"
+      "artifactName": "${productName}-v${version}-windows-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -31,17 +31,17 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Token Usage",
       "uninstallDisplayName": "Token Usage ${version}",
-      "artifactName": "${productName}-setup-${version}.${ext}"
+      "artifactName": "${productName}-setup-v${version}-windows-${arch}.${ext}"
     },
     "mac": {
       "target": "dmg",
       "icon": "assets/icon.png",
-      "artifactName": "${productName}-mac.${ext}"
+      "artifactName": "${productName}-v${version}-macos-${arch}.${ext}"
     },
     "linux": {
       "target": "AppImage",
       "icon": "assets/icon.png",
-      "artifactName": "${productName}-linux.${ext}"
+      "artifactName": "${productName}-v${version}-linux-${arch}.${ext}"
     }
   },
   "keywords": [
