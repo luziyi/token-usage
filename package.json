@@ -7,12 +7,12 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "build": "electron-builder --win portable",
+    "build": "electron-builder --publish=never",
     "check": "node -e \"require('./src/calculator');require('./src/pricing');require('./src/store');console.log('✓ check passed')\""
   },
   "build": {
     "appId": "com.token-usage.app",
-    "productName": "Token Usage",
+    "productName": "TokenUsage",
     "files": [
       "src/**/*",
       "assets/**/*",
@@ -21,7 +21,18 @@
     ],
     "win": {
       "target": "portable",
-      "icon": "assets/icon.png"
+      "icon": "assets/icon.png",
+      "artifactName": "${productName}-win.${ext}"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.png",
+      "artifactName": "${productName}-mac.${ext}"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icon.png",
+      "artifactName": "${productName}-linux.${ext}"
     }
   },
   "keywords": [
