@@ -80,7 +80,7 @@ function rowToExchange(row) {
 
 // -- DB abstraction layer: prefer node:sqlite (native, WAL-aware), fallback to sql.js --
 
-let _NodeSqlite = null;
+let _NodeSqlite;
 function tryNodeSqlite() {
   if (_NodeSqlite === undefined) {
     try {
@@ -154,7 +154,6 @@ async function openDb(home) {
   const dbPath = opencodeDbPath(home);
   if (!fs.existsSync(dbPath)) return null;
 
-  // node:sqlite – native binding, handles WAL, no file-locking issues
   const NS = tryNodeSqlite();
   if (NS) {
     try {
@@ -162,7 +161,6 @@ async function openDb(home) {
     } catch {}
   }
 
-  // Fallback: sql.js buffer mode
   const SQL = await getSqlJs();
   const buffer = fs.readFileSync(dbPath);
   return new SQL.Database(buffer);
