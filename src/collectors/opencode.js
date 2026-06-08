@@ -1,43 +1,43 @@
-const fs = require('node:fs');
-const path = require('node:path');
-const os = require('node:os');
-const { calculateExchangeCost } = require('../calculator');
-const { getSqlJs } = require('../persist');
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
+const { calculateExchangeCost } = require("../calculator");
+const { getSqlJs } = require("../persist");
 
 function opencodeDbPath(home) {
-  return path.join(home, '.local', 'share', 'opencode', 'opencode.db');
+  return path.join(home, ".local", "share", "opencode", "opencode.db");
 }
 
 function msToIso(ms) {
-  if (!ms) return '';
+  if (!ms) return "";
   const d = new Date(Number(ms));
-  return Number.isNaN(d.getTime()) ? '' : d.toISOString();
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString();
 }
 
 function getDateKey(ts) {
-  if (!ts) return 'unknown';
+  if (!ts) return "unknown";
   const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return 'unknown';
+  if (Number.isNaN(d.getTime())) return "unknown";
   const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return y + '-' + m + '-' + day;
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return y + "-" + m + "-" + day;
 }
 
 function getProviderLabel(providerId) {
   const map = {
-    deepseek: 'DeepSeek',
-    openai: 'OpenAI',
-    anthropic: 'Anthropic',
-    google: 'Google',
-    meta: 'Meta',
-    mistral: 'Mistral',
-    azure: 'Azure',
-    bedrock: 'AWS Bedrock',
-    together_ai: 'Together AI',
-    fireworks_ai: 'Fireworks AI',
+    deepseek: "DeepSeek",
+    openai: "OpenAI",
+    anthropic: "Anthropic",
+    google: "Google",
+    meta: "Meta",
+    mistral: "Mistral",
+    azure: "Azure",
+    bedrock: "AWS Bedrock",
+    together_ai: "Together AI",
+    fireworks_ai: "Fireworks AI",
   };
-  return map[providerId] || providerId || 'unknown';
+  return map[providerId] || providerId || "unknown";
 }
 
 async function collect({ period, allTimeSince, homeDir }) {
@@ -58,20 +58,22 @@ async function collect({ period, allTimeSince, homeDir }) {
   try {
     const todayStart = new Date();
     todayStart.setUTCHours(0, 0, 0, 0);
-    const monthStart = new Date(Date.UTC(todayStart.getUTCFullYear(), todayStart.getUTCMonth(), 1));
+    const monthStart = new Date(
+      Date.UTC(todayStart.getUTCFullYear(), todayStart.getUTCMonth(), 1),
+    );
 
-    let whereClause = '';
+    let whereClause = "";
     const params = [];
-    if (period === 'today') {
-      whereClause = 'WHERE s.time_created >= ?';
+    if (period === "today") {
+      whereClause = "WHERE s.time_created >= ?";
       params.push(todayStart.getTime());
-    } else if (period === 'month') {
-      whereClause = 'WHERE s.time_created >= ?';
+    } else if (period === "month") {
+      whereClause = "WHERE s.time_created >= ?";
       params.push(monthStart.getTime());
-    } else if (period === 'allTime' && allTimeSince) {
+    } else if (period === "allTime" && allTimeSince) {
       const since = new Date(allTimeSince);
       if (!Number.isNaN(since.getTime())) {
-        whereClause = 'WHERE s.time_created >= ?';
+        whereClause = "WHERE s.time_created >= ?";
         params.push(since.getTime());
       }
     }
@@ -82,17 +84,19 @@ async function collect({ period, allTimeSince, homeDir }) {
         s.model,
         s.time_created,
         s.time_updated,
-        s.tokens_input,
-        s.tokens_output,
-        s.tokens_reasoning,
-        s.tokens_cache_read,
-        s.tokens_cache_write,
-        s.cost,
         s.title,
         s.directory,
         s.project_id
+        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.input') AS INTEGER) ELSE 0 END), 0) AS tokens_input,
+        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.output') AS INTEGER) ELSE 0 END), 0) AS tokens_output,
+        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.reasoning') AS INTEGER) ELSE 0 END), 0) AS tokens_reasoning,
+        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.cache.read') AS INTEGER) ELSE 0 END), 0) AS tokens_cache_read,
+        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.cache.write') AS INTEGER) ELSE 0 END), 0) AS tokens_cache_write,
+        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.cost') AS REAL) ELSE 0 END), 0) AS cost
       FROM session s
+      LEFT JOIN message m ON m.session_id = s.id
       ${whereClause}
+      GROUP BY s.id
       ORDER BY s.time_created DESC
     `);
 
@@ -106,22 +110,29 @@ async function collect({ period, allTimeSince, homeDir }) {
       const cacheWrite = Number(row.tokens_cache_write) || 0;
       const reasoningTokens = Number(row.tokens_reasoning) || 0;
       const cost = Number(row.cost) || 0;
-      let modelRaw = (row.model || '').trim();
+      let modelRaw = (row.model || "").trim();
       if (!modelRaw) continue;
 
       let modelId = modelRaw;
-      let providerId = '';
+      let providerId = "";
       try {
         const parsed = JSON.parse(modelRaw);
-        modelId = parsed.id || parsed.model || '';
-        providerId = parsed.providerID || '';
+        modelId = parsed.id || parsed.modelID || parsed.model || "";
+        providerId = parsed.providerID || "";
       } catch {}
 
       if (!modelId) continue;
 
       const ts = msToIso(row.time_created);
 
-      if (inputTokens === 0 && outputTokens === 0 && cacheRead === 0 && cacheWrite === 0 && cost === 0) continue;
+      if (
+        inputTokens === 0 &&
+        outputTokens === 0 &&
+        cacheRead === 0 &&
+        cacheWrite === 0 &&
+        cost === 0
+      )
+        continue;
 
       exchanges.push({
         inputTokens,
@@ -139,10 +150,10 @@ async function collect({ period, allTimeSince, homeDir }) {
         timeCreated: Number(row.time_created) || 0,
         costUsd: cost,
         costFromDb: cost,
-        sessionTitle: row.title || '',
-        dirName: row.directory || '',
-        projectId: row.project_id || '',
-        source: 'opencode',
+        sessionTitle: row.title || "",
+        dirName: row.directory || "",
+        projectId: row.project_id || "",
+        source: "opencode",
       });
     }
     stmt.free();
@@ -152,10 +163,14 @@ async function collect({ period, allTimeSince, homeDir }) {
   } catch (err) {
     return { exchanges: [], sessions: [], error: err.message };
   } finally {
-    try { if (db) db.close(); } catch {}
+    try {
+      if (db) db.close();
+    } catch {}
   }
 
-  const seenSessions = new Set(exchanges.map((e) => e.sessionId).filter(Boolean));
+  const seenSessions = new Set(
+    exchanges.map((e) => e.sessionId).filter(Boolean),
+  );
   return { exchanges, sessions: Array.from(seenSessions) };
 }
 
@@ -176,21 +191,27 @@ async function collectAll({ allTimeSince, homeDir }) {
 
   try {
     const since = allTimeSince ? new Date(allTimeSince).getTime() : 0;
-    let whereClause = '';
+    let whereClause = "";
     const params = [];
     if (!Number.isNaN(since) && since > 0) {
-      whereClause = 'WHERE s.time_created >= ?';
+      whereClause = "WHERE s.time_created >= ?";
       params.push(since);
     }
 
     const stmt = db.prepare(`
       SELECT
         s.id, s.model, s.time_created, s.time_updated,
-        s.tokens_input, s.tokens_output, s.tokens_reasoning,
-        s.tokens_cache_read, s.tokens_cache_write, s.cost,
-        s.title, s.directory, s.project_id
+        s.title, s.directory, s.project_id,
+        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.input') AS INTEGER) ELSE 0 END), 0) AS tokens_input,
+        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.output') AS INTEGER) ELSE 0 END), 0) AS tokens_output,
+        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.reasoning') AS INTEGER) ELSE 0 END), 0) AS tokens_reasoning,
+        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.cache.read') AS INTEGER) ELSE 0 END), 0) AS tokens_cache_read,
+        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.cache.write') AS INTEGER) ELSE 0 END), 0) AS tokens_cache_write,
+        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.cost') AS REAL) ELSE 0 END), 0) AS cost
       FROM session s
+      LEFT JOIN message m ON m.session_id = s.id
       ${whereClause}
+      GROUP BY s.id
       ORDER BY s.time_created DESC
     `);
 
@@ -204,39 +225,58 @@ async function collectAll({ allTimeSince, homeDir }) {
       const cacheWrite = Number(row.tokens_cache_write) || 0;
       const reasoningTokens = Number(row.tokens_reasoning) || 0;
       const cost = Number(row.cost) || 0;
-      let modelRaw = (row.model || '').trim();
+      let modelRaw = (row.model || "").trim();
       if (!modelRaw) continue;
 
       let modelId = modelRaw;
-      let providerId = '';
+      let providerId = "";
       try {
         const parsed = JSON.parse(modelRaw);
-        modelId = parsed.id || parsed.model || '';
-        providerId = parsed.providerID || '';
+        modelId = parsed.id || parsed.model || "";
+        providerId = parsed.providerID || "";
       } catch {}
 
       if (!modelId) continue;
       const ts = msToIso(row.time_created);
-      if (inputTokens === 0 && outputTokens === 0 && cacheRead === 0 && cacheWrite === 0 && cost === 0) continue;
+      if (
+        inputTokens === 0 &&
+        outputTokens === 0 &&
+        cacheRead === 0 &&
+        cacheWrite === 0 &&
+        cost === 0
+      )
+        continue;
 
       exchanges.push({
-        inputTokens, outputTokens, cacheReadInputTokens: cacheRead,
-        cacheCreationInputTokens: cacheWrite, reasoningTokens,
-        model: modelId, modelClean: modelId,
-        provider: providerId, providerLabel: getProviderLabel(providerId),
-        sessionId: row.id, timestamp: ts, dateKey: getDateKey(ts),
+        inputTokens,
+        outputTokens,
+        cacheReadInputTokens: cacheRead,
+        cacheCreationInputTokens: cacheWrite,
+        reasoningTokens,
+        model: modelId,
+        modelClean: modelId,
+        provider: providerId,
+        providerLabel: getProviderLabel(providerId),
+        sessionId: row.id,
+        timestamp: ts,
+        dateKey: getDateKey(ts),
         timeCreated: Number(row.time_created) || 0,
-        costUsd: cost, costFromDb: cost,
-        sessionTitle: row.title || '', dirName: row.directory || '',
-        projectId: row.project_id || '',
-        source: 'opencode',
+        costUsd: cost,
+        costFromDb: cost,
+        sessionTitle: row.title || "",
+        dirName: row.directory || "",
+        projectId: row.project_id || "",
+        source: "opencode",
       });
     }
     stmt.free();
 
     applyModelSwitchSplit(db, exchanges);
-  } catch {} finally {
-    try { if (db) db.close(); } catch {}
+  } catch {
+  } finally {
+    try {
+      if (db) db.close();
+    } catch {}
   }
 
   return exchanges;
@@ -250,11 +290,13 @@ async function collectAll({ allTimeSince, homeDir }) {
  * 2. Timestamp-based model-switch timeline (fallback)
  */
 function applyModelSwitchSplit(db, exchanges) {
-  const collectedIds = exchanges.map(e => e.sessionId).filter(Boolean);
+  const collectedIds = exchanges.map((e) => e.sessionId).filter(Boolean);
   if (collectedIds.length === 0) return;
 
-  const placeholders = collectedIds.map(() => '?').join(',');
-  const switchCheck = db.prepare(`SELECT DISTINCT session_id FROM session_message WHERE type = 'model-switched' AND session_id IN (${placeholders})`);
+  const placeholders = collectedIds.map(() => "?").join(",");
+  const switchCheck = db.prepare(
+    `SELECT DISTINCT session_id FROM session_message WHERE type = 'model-switched' AND session_id IN (${placeholders})`,
+  );
   switchCheck.bind(collectedIds);
   const switchedIds = [];
   while (switchCheck.step()) {
@@ -275,72 +317,94 @@ function applyModelSwitchSplit(db, exchanges) {
   const perModel = {};
 
   // ---- Strategy 1: per-message model field ----
-  const likeList = switchedIds.map(() => "session_id LIKE ? || '%'").join(' OR ');
+  const likeList = switchedIds
+    .map(() => "session_id LIKE ? || '%'")
+    .join(" OR ");
   const st1 = db.prepare(`
     SELECT session_id, time_created, data FROM message
     WHERE (${likeList})
       AND json_extract(data, '$.role') = 'assistant'
-      AND json_extract(data, '$.model.modelID') IS NOT NULL
+      AND (json_extract(data, '$.modelID') IS NOT NULL OR json_extract(data, '$.model.modelID') IS NOT NULL)
     ORDER BY session_id, time_created ASC
   `);
   st1.bind(switchedIds);
   while (st1.step()) {
     const r = st1.getAsObject();
     let d = {};
-    try { d = JSON.parse(r.data || '{}'); } catch {}
-    const m = d.model;
-    if (!m) continue;
-    const mid = m.modelID || m.id || '';
+    try {
+      d = JSON.parse(r.data || "{}");
+    } catch {}
+    // const m = d.model;
+    // if (!m) continue;
+    // const mid = m.modelID || m.id || "";
+    const mid = d.modelID || (d.model && (d.model.modelID || d.model.id)) || "";
+    const provID = d.providerID || (d.model && d.model.providerID) || "";
     if (!mid) continue;
     const sid = matchSession(r.session_id);
-    const key = sid + '::' + mid;
+    const key = sid + "::" + mid;
     if (!perModel[key]) {
-      perModel[key] = { sessionId: sid, model: mid, provider: m.providerID || '', cost: 0 };
+      perModel[key] = {
+        sessionId: sid,
+        model: mid,
+        provider: provID,
+        cost: 0,
+      };
     }
-    const t = d.tokens || {};
     perModel[key].cost += Number(d.cost) || 0;
   }
   st1.free();
 
   // ---- Strategy 2: timestamp-based fallback ----
-  const needFallback = switchedIds.filter(sid =>
-    !Object.keys(perModel).some(k => k.startsWith(sid + '::'))
+  const needFallback = switchedIds.filter(
+    (sid) => !Object.keys(perModel).some((k) => k.startsWith(sid + "::")),
   );
   if (needFallback.length > 0) {
     // Build timeline: session → [{time, model}, ...]
     const timeline = {};
     for (const sid of needFallback) {
       timeline[sid] = [];
-      const sRow = db.exec('SELECT model FROM session WHERE id = ?', [sid]);
+      const sRow = db.exec("SELECT model FROM session WHERE id = ?", [sid]);
       if (sRow.length > 0 && sRow[0].values.length > 0) {
         try {
-          const p = JSON.parse(sRow[0].values[0][0] || '{}');
-          if (p.id) timeline[sid].push({ time: 0, model: p.id, provider: p.providerID || '' });
+          const p = JSON.parse(sRow[0].values[0][0] || "{}");
+          if (p.id)
+            timeline[sid].push({
+              time: 0,
+              model: p.id,
+              provider: p.providerID || "",
+            });
         } catch {}
       }
     }
 
     const fb1 = db.prepare(`
       SELECT session_id, data FROM session_message
-      WHERE (${needFallback.map(() => "session_id LIKE ? || '%'").join(' OR ')}) AND type = 'model-switched'
+      WHERE (${needFallback.map(() => "session_id LIKE ? || '%'").join(" OR ")}) AND type = 'model-switched'
       ORDER BY session_id, json_extract(data, '$.time.created') ASC
     `);
     fb1.bind(needFallback);
     while (fb1.step()) {
       const r = fb1.getAsObject();
       let d = {};
-      try { d = JSON.parse(r.data || '{}'); } catch {}
+      try {
+        d = JSON.parse(r.data || "{}");
+      } catch {}
       const mi = d.model;
       if (!mi || !mi.id) continue;
-      const time = (d.time && d.time.created) ? Number(d.time.created) : 0;
+      const time = d.time && d.time.created ? Number(d.time.created) : 0;
       const sid = matchSession(r.session_id);
-      if (timeline[sid]) timeline[sid].push({ time, model: mi.id, provider: mi.providerID || '' });
+      if (timeline[sid])
+        timeline[sid].push({
+          time,
+          model: mi.id,
+          provider: mi.providerID || "",
+        });
     }
     fb1.free();
 
     const fb2 = db.prepare(`
       SELECT session_id, time_created, data FROM message
-      WHERE (${needFallback.map(() => "session_id LIKE ? || '%'").join(' OR ')})
+      WHERE (${needFallback.map(() => "session_id LIKE ? || '%'").join(" OR ")})
         AND json_extract(data, '$.role') = 'assistant'
       ORDER BY session_id, time_created ASC
     `);
@@ -348,7 +412,9 @@ function applyModelSwitchSplit(db, exchanges) {
     while (fb2.step()) {
       const r = fb2.getAsObject();
       let d = {};
-      try { d = JSON.parse(r.data || '{}'); } catch {}
+      try {
+        d = JSON.parse(r.data || "{}");
+      } catch {}
       const msgTime = Number(r.time_created) || 0;
       const sid = matchSession(r.session_id);
       const tl = timeline[sid] || [];
@@ -357,9 +423,14 @@ function applyModelSwitchSplit(db, exchanges) {
         if (msgTime >= e.time) active = e;
       }
       if (!active) continue;
-      const key = sid + '::' + active.model;
+      const key = sid + "::" + active.model;
       if (!perModel[key]) {
-        perModel[key] = { sessionId: sid, model: active.model, provider: active.provider || '', cost: 0 };
+        perModel[key] = {
+          sessionId: sid,
+          model: active.model,
+          provider: active.provider || "",
+          cost: 0,
+        };
       }
       const t = d.tokens || {};
       perModel[key].cost += Number(d.cost) || 0;
@@ -373,26 +444,31 @@ function applyModelSwitchSplit(db, exchanges) {
   const exchangeBySession = {};
   for (const ex of exchanges) {
     if (switchedSet.has(ex.sessionId)) {
-      (exchangeBySession[ex.sessionId] = exchangeBySession[ex.sessionId] || []).push(ex);
+      (exchangeBySession[ex.sessionId] =
+        exchangeBySession[ex.sessionId] || []).push(ex);
     } else {
       kept.push(ex);
     }
   }
   for (const [sid, sessionExchanges] of Object.entries(exchangeBySession)) {
     const orig = sessionExchanges[0];
-    const models = Object.values(perModel).filter(p => p.sessionId === sid);
+    const models = Object.values(perModel).filter((p) => p.sessionId === sid);
     const totalMsgCost = models.reduce((s, m) => s + m.cost, 0);
     if (totalMsgCost > 0) {
       for (const pm of models) {
         const ratio = pm.cost / totalMsgCost;
         kept.push({
           ...orig,
-          model: pm.model, modelClean: pm.model,
-          provider: pm.provider, providerLabel: getProviderLabel(pm.provider),
+          model: pm.model,
+          modelClean: pm.model,
+          provider: pm.provider,
+          providerLabel: getProviderLabel(pm.provider),
           inputTokens: Math.round(orig.inputTokens * ratio),
           outputTokens: Math.round(orig.outputTokens * ratio),
           cacheReadInputTokens: Math.round(orig.cacheReadInputTokens * ratio),
-          cacheCreationInputTokens: Math.round(orig.cacheCreationInputTokens * ratio),
+          cacheCreationInputTokens: Math.round(
+            orig.cacheCreationInputTokens * ratio,
+          ),
           reasoningTokens: Math.round(orig.reasoningTokens * ratio),
           costUsd: orig.costUsd * ratio,
           costFromDb: orig.costUsd * ratio,
@@ -421,8 +497,7 @@ async function readSessionDetail({ sessionId, homeDir }) {
 
   try {
     const sessionStmt = db.prepare(`
-      SELECT id, model, time_created, title, directory, project_id,
-             tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, cost
+      SELECT id, model, time_created, title, directory, project_id
       FROM session WHERE id = ?
     `);
     sessionStmt.bind([sessionId]);
@@ -444,12 +519,14 @@ async function readSessionDetail({ sessionId, homeDir }) {
     while (msgStmt.step()) {
       const row = msgStmt.getAsObject();
       let data = {};
-      try { data = JSON.parse(row.data || '{}'); } catch {}
+      try {
+        data = JSON.parse(row.data || "{}");
+      } catch {}
       messages.push({
         id: row.id,
         sessionId: row.session_id,
         timeCreated: row.time_created,
-        ...data
+        ...data,
       });
     }
     msgStmt.free();
@@ -466,7 +543,9 @@ async function readSessionDetail({ sessionId, homeDir }) {
     while (partStmt.step()) {
       const row = partStmt.getAsObject();
       let data = {};
-      try { data = JSON.parse(row.data || '{}'); } catch {}
+      try {
+        data = JSON.parse(row.data || "{}");
+      } catch {}
       const mid = row.message_id;
       if (!partsMap[mid]) partsMap[mid] = [];
       partsMap[mid].push(data);
@@ -476,48 +555,73 @@ async function readSessionDetail({ sessionId, homeDir }) {
     const exchanges = [];
     let current = null;
     // Parse session model (may be JSON like {"id":"model","providerID":"provider"} or plain string)
-    let sessionModel = '', sessionProvider = '';
+    let sessionModel = "",
+      sessionProvider = "";
     if (sessionInfo && sessionInfo.model) {
       try {
         const parsed = JSON.parse(sessionInfo.model);
-        sessionModel = parsed.id || parsed.model || '';
-        sessionProvider = parsed.providerID || '';
+        sessionModel = parsed.id || parsed.model || "";
+        sessionProvider = parsed.providerID || "";
       } catch {
         sessionModel = String(sessionInfo.model).trim();
       }
     }
 
     for (const msg of messages) {
-      const role = (msg.role || '').toLowerCase();
+      const role = (msg.role || "").toLowerCase();
       const msgParts = partsMap[msg.id] || [];
-      const textParts = msgParts.filter(p => p.type === 'text' && p.text);
-      const toolParts = msgParts.filter(p => p.type === 'tool' && p.tool);
-      const fileParts = msgParts.filter(p => p.type === 'file');
-      const text = textParts.map(p => p.text).join(' ').replace(/\s+/g, ' ').trim().substring(0, 300);
-      const tools = toolParts.map(p => p.tool);
+      const textParts = msgParts.filter((p) => p.type === "text" && p.text);
+      const toolParts = msgParts.filter((p) => p.type === "tool" && p.tool);
+      const fileParts = msgParts.filter((p) => p.type === "file");
+      const text = textParts
+        .map((p) => p.text)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .substring(0, 300);
+      const tools = toolParts.map((p) => p.tool);
       const tokens = msg.tokens || {};
       const cost = msg.cost || 0;
-      const ts = msg.timeCreated ? msToIso(msg.timeCreated) : '';
-      const turnModel = msg.model || sessionModel;
-      const turnProvider = msg.provider || msg.providerID || sessionProvider;
+      const ts = msg.timeCreated ? msToIso(msg.timeCreated) : "";
+      // const turnModel = msg.model || sessionModel;
+      // const turnProvider = msg.provider || msg.providerID || sessionProvider;
 
-      if (role === 'user') {
+      const turnModel =
+        msg.modelID ||
+        (msg.model && (msg.model.modelID || msg.model.id)) ||
+        sessionModel;
+      const turnProvider =
+        msg.providerID ||
+        (msg.model && msg.model.providerID) ||
+        msg.provider ||
+        sessionProvider;
+
+      if (role === "user") {
         if (!text && fileParts.length === 0) continue;
         current = {
-          promptPreview: text || '[files]',
+          promptPreview: text || "[files]",
           startedAt: ts,
           turnCount: 0,
-          tokens: { total: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 },
+          tokens: {
+            total: 0,
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            reasoning: 0,
+          },
           costEstimate: 0,
           tools: [],
-          turns: []
+          turns: [],
         };
         exchanges.push(current);
-      } else if (role === 'assistant') {
+      } else if (role === "assistant") {
         const tInput = Number(tokens.input) || 0;
         const tOutput = Number(tokens.output) || 0;
-        const tCacheRead = Number(tokens.cache?.read) || Number(tokens.cache_read) || 0;
-        const tCacheWrite = Number(tokens.cache?.write) || Number(tokens.cache_write) || 0;
+        const tCacheRead =
+          Number(tokens.cache?.read) || Number(tokens.cache_read) || 0;
+        const tCacheWrite =
+          Number(tokens.cache?.write) || Number(tokens.cache_write) || 0;
         const tReasoning = Number(tokens.reasoning) || 0;
         const turnTokens = {
           total: tInput + tOutput + tCacheRead + tCacheWrite + tReasoning,
@@ -525,29 +629,46 @@ async function readSessionDetail({ sessionId, homeDir }) {
           output: tOutput,
           cacheRead: tCacheRead,
           cacheWrite: tCacheWrite,
-          reasoning: tReasoning
+          reasoning: tReasoning,
         };
 
         if (!current) {
           current = {
-            promptPreview: '',
+            promptPreview: "",
             startedAt: ts,
             turnCount: 0,
-            tokens: { total: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 },
+            tokens: {
+              total: 0,
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              reasoning: 0,
+            },
             costEstimate: 0,
             tools: [],
-            turns: []
+            turns: [],
           };
           exchanges.push(current);
         }
 
-        const turnCost = cost || calculateExchangeCost(tInput, tOutput, tCacheRead, tCacheWrite, tReasoning, turnModel, turnProvider);
+        const turnCost =
+          cost ||
+          calculateExchangeCost(
+            tInput,
+            tOutput,
+            tCacheRead,
+            tCacheWrite,
+            tReasoning,
+            turnModel,
+            turnProvider,
+          );
         current.turns.push({
           tokens: turnTokens,
           costEstimate: turnCost,
           model: turnModel,
           provider: turnProvider,
-          tools: tools
+          tools: tools,
         });
         current.turnCount++;
         current.tokens.output += tOutput;
@@ -561,26 +682,45 @@ async function readSessionDetail({ sessionId, homeDir }) {
     }
 
     const rawExchanges = [];
-    if (sessionInfo) {
+    for (const msg of messages) {
+      if ((msg.role || "").toLowerCase() !== "assistant") continue;
+      const t = msg.tokens || {};
+      const tInput = Number(t.input) || 0;
+      const tOutput = Number(t.output) || 0;
+      const tCacheRead = Number(t.cache?.read) || Number(t.cache_read) || 0;
+      const tCacheWrite = Number(t.cache?.write) || Number(t.cache_write) || 0;
+      const tReasoning = Number(t.reasoning) || 0;
+      const msgCost = Number(msg.cost) || 0;
+      if (
+        tInput === 0 &&
+        tOutput === 0 &&
+        tCacheRead === 0 &&
+        tCacheWrite === 0 &&
+        tReasoning === 0 &&
+        msgCost === 0
+      )
+        continue;
       rawExchanges.push({
-        inputTokens: Number(sessionInfo.tokens_input) || 0,
-        outputTokens: Number(sessionInfo.tokens_output) || 0,
-        cacheReadInputTokens: Number(sessionInfo.tokens_cache_read) || 0,
-        cacheCreationInputTokens: Number(sessionInfo.tokens_cache_write) || 0,
-        reasoningTokens: Number(sessionInfo.tokens_reasoning) || 0,
-        costUsd: Number(sessionInfo.cost) || 0,
-        model: sessionInfo.model || ''
+        inputTokens: tInput,
+        outputTokens: tOutput,
+        cacheReadInputTokens: tCacheRead,
+        cacheCreationInputTokens: tCacheWrite,
+        reasoningTokens: tReasoning,
+        costUsd: msgCost,
+        model: msg.modelID || (sessionInfo && sessionInfo.model) || "",
       });
     }
 
-    const { sumTokens } = require('../calculator');
+    const { sumTokens } = require("../calculator");
     const summary = sumTokens(rawExchanges);
 
     return { exchanges, summary, found: exchanges.length > 0, sessionInfo };
   } catch {
     return { exchanges: [], summary: null };
   } finally {
-    try { if (db) db.close(); } catch {}
+    try {
+      if (db) db.close();
+    } catch {}
   }
 }
 
