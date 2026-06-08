@@ -1,3 +1,4 @@
+const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
@@ -78,30 +79,68 @@ function rowToExchange(row) {
   };
 }
 
-// -- DB engine: better-sqlite3 (native, WAL-aware), fallback to sql.js buffer --
+// -- DB engine: sqlite3 CLI (native, WAL-aware), fallback to sql.js buffer --
 
-let _BetterSqlite3 = null;
-function tryBetterSqlite3() {
-  if (_BetterSqlite3 === null || _BetterSqlite3 === undefined) {
-    try {
-      _BetterSqlite3 = require("better-sqlite3");
-    } catch {
-      _BetterSqlite3 = false;
+function findSqlite3() {
+  let isPkg = false;
+  try { isPkg = require("electron").app.isPackaged; } catch {}
+  const candidates = [];
+
+  if (process.platform === "win32") {
+    if (isPkg) {
+      candidates.push(path.join(process.resourcesPath, "sqlite3.exe"));
+    } else {
+      candidates.push(path.join(__dirname, "..", "..", "assets", "sqlite3.exe"));
+    }
+  } else {
+    candidates.push("sqlite3");
+    if (isPkg) {
+      candidates.push(path.join(process.resourcesPath, "sqlite3"));
+    } else {
+      candidates.push(path.join(__dirname, "..", "..", "assets", "sqlite3"));
+      candidates.push("/usr/bin/sqlite3");
+      candidates.push("/usr/local/bin/sqlite3");
     }
   }
-  return _BetterSqlite3;
-}
 
-function isBetterSqlite3(db) {
-  return db && db.constructor && db.constructor.name === "Database";
-}
-
-function sqlAll(db, sql, params) {
-  if (isBetterSqlite3(db)) {
-    return params && params.length > 0
-      ? db.prepare(sql).all(...params)
-      : db.prepare(sql).all();
+  for (const c of candidates) {
+    try {
+      const r = execFileSync(c, ["--version"], {
+        encoding: "utf8",
+        timeout: 3000,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      if (r && r.trim()) return c;
+    } catch {}
   }
+  return null;
+}
+
+function sqlEscape(val) {
+  if (typeof val === "number") return String(val);
+  return "'" + String(val).replace(/'/g, "''") + "'";
+}
+
+function substParams(sql, params) {
+  if (!params || params.length === 0) return sql;
+  let i = 0;
+  return sql.replace(/\?/g, () => sqlEscape(params[i++]));
+}
+
+function sqlite3All(sqlite3Path, dbPath, sql, params) {
+  const fullSql = ".mode json\n" + substParams(sql, params) + ";\n";
+  const result = execFileSync(sqlite3Path, [dbPath], {
+    encoding: "utf8",
+    timeout: 10000,
+    input: fullSql,
+    stdio: ["pipe", "pipe", "ignore"],
+  });
+  const trimmed = result.trim();
+  if (!trimmed) return [];
+  return JSON.parse(trimmed);
+}
+
+function sqlJsAll(db, sql, params) {
   const p = db.prepare(sql);
   if (params && params.length > 0) p.bind(params);
   const rows = [];
@@ -112,27 +151,31 @@ function sqlAll(db, sql, params) {
   return rows;
 }
 
-function dbClose(db) {
-  if (!db) return;
-  try {
-    db.close();
-  } catch {}
-}
+let _sqlite3Cache;
+let _sqlJsFallback;
 
 async function openDb(home) {
   const dbPath = opencodeDbPath(home);
   if (!fs.existsSync(dbPath)) return null;
 
-  const BS = tryBetterSqlite3();
-  if (BS) {
-    try {
-      return new BS(dbPath, { readonly: true });
-    } catch {}
-  }
+  if (_sqlite3Cache === undefined) _sqlite3Cache = findSqlite3();
+  if (_sqlite3Cache) return { _type: "cli", _dbPath: dbPath, _bin: _sqlite3Cache };
 
   const SQL = await getSqlJs();
   const buffer = fs.readFileSync(dbPath);
-  return new SQL.Database(buffer);
+  return _sqlJsFallback || (_sqlJsFallback = new SQL.Database(buffer));
+}
+
+function sqlAll(db, sql, params) {
+  if (db._type === "cli") {
+    return sqlite3All(db._bin, db._dbPath, sql, params);
+  }
+  return sqlJsAll(db, sql, params);
+}
+
+function dbClose(db) {
+  if (!db || db._type === "cli") return;
+  try { db.close(); } catch {}
 }
 
 // -- End DB engine --
@@ -208,17 +251,13 @@ function applyModelSwitchSplit(db, exchanges) {
   );
   for (const r of st1Rows) {
     let d = {};
-    try {
-      d = JSON.parse(r.data || "{}");
-    } catch {}
+    try { d = JSON.parse(r.data || "{}"); } catch {}
     const mid = d.modelID || (d.model && (d.model.modelID || d.model.id)) || "";
     const provID = d.providerID || (d.model && d.model.providerID) || "";
     if (!mid) continue;
     const sid = matchSession(r.session_id);
     const key = sid + "::" + mid;
-    if (!perModel[key]) {
-      perModel[key] = { sessionId: sid, model: mid, provider: provID, cost: 0 };
-    }
+    if (!perModel[key]) { perModel[key] = { sessionId: sid, model: mid, provider: provID, cost: 0 }; }
     perModel[key].cost += Number(d.cost) || 0;
   }
 
@@ -233,12 +272,7 @@ function applyModelSwitchSplit(db, exchanges) {
       if (sRows.length > 0) {
         try {
           const p = JSON.parse(sRows[0].model || "{}");
-          if (p.id)
-            timeline[sid].push({
-              time: 0,
-              model: p.id,
-              provider: p.providerID || "",
-            });
+          if (p.id) timeline[sid].push({ time: 0, model: p.id, provider: p.providerID || "" });
         } catch {}
       }
     }
@@ -252,19 +286,12 @@ function applyModelSwitchSplit(db, exchanges) {
     );
     for (const r of fb1Rows) {
       let d = {};
-      try {
-        d = JSON.parse(r.data || "{}");
-      } catch {}
+      try { d = JSON.parse(r.data || "{}"); } catch {}
       const mi = d.model;
       if (!mi || !mi.id) continue;
       const time = d.time && d.time.created ? Number(d.time.created) : 0;
       const sid = matchSession(r.session_id);
-      if (timeline[sid])
-        timeline[sid].push({
-          time,
-          model: mi.id,
-          provider: mi.providerID || "",
-        });
+      if (timeline[sid]) timeline[sid].push({ time, model: mi.id, provider: mi.providerID || "" });
     }
 
     const fb2Rows = sqlAll(
@@ -277,26 +304,15 @@ function applyModelSwitchSplit(db, exchanges) {
     );
     for (const r of fb2Rows) {
       let d = {};
-      try {
-        d = JSON.parse(r.data || "{}");
-      } catch {}
+      try { d = JSON.parse(r.data || "{}"); } catch {}
       const msgTime = Number(r.time_created) || 0;
       const sid = matchSession(r.session_id);
       const tl = timeline[sid] || [];
       let active = tl[0];
-      for (const e of tl) {
-        if (msgTime >= e.time) active = e;
-      }
+      for (const e of tl) { if (msgTime >= e.time) active = e; }
       if (!active) continue;
       const key = sid + "::" + active.model;
-      if (!perModel[key]) {
-        perModel[key] = {
-          sessionId: sid,
-          model: active.model,
-          provider: active.provider || "",
-          cost: 0,
-        };
-      }
+      if (!perModel[key]) { perModel[key] = { sessionId: sid, model: active.model, provider: active.provider || "", cost: 0 }; }
       perModel[key].cost += Number(d.cost) || 0;
     }
   }
@@ -306,11 +322,8 @@ function applyModelSwitchSplit(db, exchanges) {
   const exchangeBySession = {};
   for (const ex of exchanges) {
     if (switchedSet.has(ex.sessionId)) {
-      (exchangeBySession[ex.sessionId] =
-        exchangeBySession[ex.sessionId] || []).push(ex);
-    } else {
-      kept.push(ex);
-    }
+      (exchangeBySession[ex.sessionId] = exchangeBySession[ex.sessionId] || []).push(ex);
+    } else { kept.push(ex); }
   }
   for (const [sid, sessionExchanges] of Object.entries(exchangeBySession)) {
     const orig = sessionExchanges[0];
@@ -319,26 +332,9 @@ function applyModelSwitchSplit(db, exchanges) {
     if (totalMsgCost > 0) {
       for (const pm of models) {
         const ratio = pm.cost / totalMsgCost;
-        kept.push({
-          ...orig,
-          model: pm.model,
-          modelClean: pm.model,
-          provider: pm.provider,
-          providerLabel: getProviderLabel(pm.provider),
-          inputTokens: Math.round(orig.inputTokens * ratio),
-          outputTokens: Math.round(orig.outputTokens * ratio),
-          cacheReadInputTokens: Math.round(orig.cacheReadInputTokens * ratio),
-          cacheCreationInputTokens: Math.round(
-            orig.cacheCreationInputTokens * ratio,
-          ),
-          reasoningTokens: Math.round(orig.reasoningTokens * ratio),
-          costUsd: orig.costUsd * ratio,
-          costFromDb: orig.costUsd * ratio,
-        });
+        kept.push({ ...orig, model: pm.model, modelClean: pm.model, provider: pm.provider, providerLabel: getProviderLabel(pm.provider), inputTokens: Math.round(orig.inputTokens * ratio), outputTokens: Math.round(orig.outputTokens * ratio), cacheReadInputTokens: Math.round(orig.cacheReadInputTokens * ratio), cacheCreationInputTokens: Math.round(orig.cacheCreationInputTokens * ratio), reasoningTokens: Math.round(orig.reasoningTokens * ratio), costUsd: orig.costUsd * ratio, costFromDb: orig.costUsd * ratio });
       }
-    } else {
-      kept.push(orig);
-    }
+    } else { kept.push(orig); }
   }
   exchanges.length = 0;
   exchanges.push(...kept);
@@ -353,48 +349,25 @@ async function readSessionDetail({ sessionId, homeDir }) {
     if (!fs.existsSync(dbPath)) return { exchanges: [], summary: null };
     db = await openDb(home);
     if (!db) return { exchanges: [], summary: null };
-  } catch {
-    return { exchanges: [], summary: null };
-  }
+  } catch { return { exchanges: [], summary: null }; }
 
   try {
-    const sessionRows = sqlAll(
-      db,
-      `SELECT id, model, time_created, title, directory, project_id FROM session WHERE id = ?`,
-      [sessionId],
-    );
+    const sessionRows = sqlAll(db, "SELECT id, model, time_created, title, directory, project_id FROM session WHERE id = ?", [sessionId]);
     const sessionInfo = sessionRows.length > 0 ? sessionRows[0] : null;
 
-    const msgRows = sqlAll(
-      db,
-      `SELECT id, session_id, time_created, data FROM message WHERE session_id LIKE ? || '%' ORDER BY time_created ASC, id ASC`,
-      [sessionId],
-    );
+    const msgRows = sqlAll(db, "SELECT id, session_id, time_created, data FROM message WHERE session_id LIKE ? || '%' ORDER BY time_created ASC, id ASC", [sessionId]);
     const messages = [];
     for (const row of msgRows) {
       let data = {};
-      try {
-        data = JSON.parse(row.data || "{}");
-      } catch {}
-      messages.push({
-        id: row.id,
-        sessionId: row.session_id,
-        timeCreated: row.time_created,
-        ...data,
-      });
+      try { data = JSON.parse(row.data || "{}"); } catch {}
+      messages.push({ id: row.id, sessionId: row.session_id, timeCreated: row.time_created, ...data });
     }
 
-    const partRows = sqlAll(
-      db,
-      `SELECT id, message_id, session_id, time_created, data FROM part WHERE session_id LIKE ? || '%' ORDER BY time_created ASC, id ASC`,
-      [sessionId],
-    );
+    const partRows = sqlAll(db, "SELECT id, message_id, session_id, time_created, data FROM part WHERE session_id LIKE ? || '%' ORDER BY time_created ASC, id ASC", [sessionId]);
     const partsMap = {};
     for (const row of partRows) {
       let data = {};
-      try {
-        data = JSON.parse(row.data || "{}");
-      } catch {}
+      try { data = JSON.parse(row.data || "{}"); } catch {}
       const mid = row.message_id;
       if (!partsMap[mid]) partsMap[mid] = [];
       partsMap[mid].push(data);
@@ -402,16 +375,10 @@ async function readSessionDetail({ sessionId, homeDir }) {
 
     const exchanges = [];
     let current = null;
-    let sessionModel = "",
-      sessionProvider = "";
+    let sessionModel = "", sessionProvider = "";
     if (sessionInfo && sessionInfo.model) {
-      try {
-        const parsed = JSON.parse(sessionInfo.model);
-        sessionModel = parsed.id || parsed.model || "";
-        sessionProvider = parsed.providerID || "";
-      } catch {
-        sessionModel = String(sessionInfo.model).trim();
-      }
+      try { const parsed = JSON.parse(sessionInfo.model); sessionModel = parsed.id || parsed.model || ""; sessionProvider = parsed.providerID || ""; }
+      catch { sessionModel = String(sessionInfo.model).trim(); }
     }
 
     for (const msg of messages) {
@@ -420,108 +387,37 @@ async function readSessionDetail({ sessionId, homeDir }) {
       const textParts = msgParts.filter((p) => p.type === "text" && p.text);
       const toolParts = msgParts.filter((p) => p.type === "tool" && p.tool);
       const fileParts = msgParts.filter((p) => p.type === "file");
-      const text = textParts
-        .map((p) => p.text)
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim()
-        .substring(0, 300);
+      const text = textParts.map((p) => p.text).join(" ").replace(/\s+/g, " ").trim().substring(0, 300);
       const tools = toolParts.map((p) => p.tool);
       const tokens = msg.tokens || {};
       const cost = msg.cost || 0;
       const ts = msg.timeCreated ? msToIso(msg.timeCreated) : "";
 
-      const turnModel =
-        msg.modelID ||
-        (msg.model && (msg.model.modelID || msg.model.id)) ||
-        sessionModel;
-      const turnProvider =
-        msg.providerID ||
-        (msg.model && msg.model.providerID) ||
-        msg.provider ||
-        sessionProvider;
+      const turnModel = msg.modelID || (msg.model && (msg.model.modelID || msg.model.id)) || sessionModel;
+      const turnProvider = msg.providerID || (msg.model && msg.model.providerID) || msg.provider || sessionProvider;
 
       if (role === "user") {
         if (!text && fileParts.length === 0) continue;
-        current = {
-          promptPreview: text || "[files]",
-          startedAt: ts,
-          turnCount: 0,
-          tokens: {
-            total: 0,
-            input: 0,
-            output: 0,
-            cacheRead: 0,
-            cacheWrite: 0,
-            reasoning: 0,
-          },
-          costEstimate: 0,
-          tools: [],
-          turns: [],
-        };
+        current = { promptPreview: text || "[files]", startedAt: ts, turnCount: 0, tokens: { total: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 }, costEstimate: 0, tools: [], turns: [] };
         exchanges.push(current);
       } else if (role === "assistant") {
         const tInput = Number(tokens.input) || 0;
         const tOutput = Number(tokens.output) || 0;
-        const tCacheRead =
-          Number(tokens.cache?.read) || Number(tokens.cache_read) || 0;
-        const tCacheWrite =
-          Number(tokens.cache?.write) || Number(tokens.cache_write) || 0;
+        const tCacheRead = Number(tokens.cache?.read) || Number(tokens.cache_read) || 0;
+        const tCacheWrite = Number(tokens.cache?.write) || Number(tokens.cache_write) || 0;
         const tReasoning = Number(tokens.reasoning) || 0;
-        const turnTokens = {
-          total: tInput + tOutput + tCacheRead + tCacheWrite + tReasoning,
-          input: tInput,
-          output: tOutput,
-          cacheRead: tCacheRead,
-          cacheWrite: tCacheWrite,
-          reasoning: tReasoning,
-        };
+        const turnTokens = { total: tInput + tOutput + tCacheRead + tCacheWrite + tReasoning, input: tInput, output: tOutput, cacheRead: tCacheRead, cacheWrite: tCacheWrite, reasoning: tReasoning };
 
         if (!current) {
-          current = {
-            promptPreview: "",
-            startedAt: ts,
-            turnCount: 0,
-            tokens: {
-              total: 0,
-              input: 0,
-              output: 0,
-              cacheRead: 0,
-              cacheWrite: 0,
-              reasoning: 0,
-            },
-            costEstimate: 0,
-            tools: [],
-            turns: [],
-          };
+          current = { promptPreview: "", startedAt: ts, turnCount: 0, tokens: { total: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 }, costEstimate: 0, tools: [], turns: [] };
           exchanges.push(current);
         }
 
-        const turnCost =
-          cost ||
-          calculateExchangeCost(
-            tInput,
-            tOutput,
-            tCacheRead,
-            tCacheWrite,
-            tReasoning,
-            turnModel,
-            turnProvider,
-          );
-        current.turns.push({
-          tokens: turnTokens,
-          costEstimate: turnCost,
-          model: turnModel,
-          provider: turnProvider,
-          tools: tools,
-        });
+        const turnCost = cost || calculateExchangeCost(tInput, tOutput, tCacheRead, tCacheWrite, tReasoning, turnModel, turnProvider);
+        current.turns.push({ tokens: turnTokens, costEstimate: turnCost, model: turnModel, provider: turnProvider, tools: tools });
         current.turnCount++;
-        current.tokens.output += tOutput;
-        current.tokens.cacheRead += tCacheRead;
-        current.tokens.cacheWrite += tCacheWrite;
-        current.tokens.reasoning += tReasoning;
-        current.tokens.total += turnTokens.total;
-        current.costEstimate += turnCost;
+        current.tokens.output += tOutput; current.tokens.cacheRead += tCacheRead; current.tokens.cacheWrite += tCacheWrite;
+        current.tokens.reasoning += tReasoning; current.tokens.total += turnTokens.total; current.costEstimate += turnCost;
         if (tools.length > 0) current.tools.push(...tools);
       }
     }
@@ -530,41 +426,18 @@ async function readSessionDetail({ sessionId, homeDir }) {
     for (const msg of messages) {
       if ((msg.role || "").toLowerCase() !== "assistant") continue;
       const t = msg.tokens || {};
-      const tInput = Number(t.input) || 0;
-      const tOutput = Number(t.output) || 0;
+      const tInput = Number(t.input) || 0; const tOutput = Number(t.output) || 0;
       const tCacheRead = Number(t.cache?.read) || Number(t.cache_read) || 0;
       const tCacheWrite = Number(t.cache?.write) || Number(t.cache_write) || 0;
-      const tReasoning = Number(t.reasoning) || 0;
-      const msgCost = Number(msg.cost) || 0;
-      if (
-        tInput === 0 &&
-        tOutput === 0 &&
-        tCacheRead === 0 &&
-        tCacheWrite === 0 &&
-        tReasoning === 0 &&
-        msgCost === 0
-      )
-        continue;
-      rawExchanges.push({
-        inputTokens: tInput,
-        outputTokens: tOutput,
-        cacheReadInputTokens: tCacheRead,
-        cacheCreationInputTokens: tCacheWrite,
-        reasoningTokens: tReasoning,
-        costUsd: msgCost,
-        model: msg.modelID || (sessionInfo && sessionInfo.model) || "",
-      });
+      const tReasoning = Number(t.reasoning) || 0; const msgCost = Number(msg.cost) || 0;
+      if (tInput === 0 && tOutput === 0 && tCacheRead === 0 && tCacheWrite === 0 && tReasoning === 0 && msgCost === 0) continue;
+      rawExchanges.push({ inputTokens: tInput, outputTokens: tOutput, cacheReadInputTokens: tCacheRead, cacheCreationInputTokens: tCacheWrite, reasoningTokens: tReasoning, costUsd: msgCost, model: msg.modelID || (sessionInfo && sessionInfo.model) || "" });
     }
-
     const { sumTokens } = require("../calculator");
     const summary = sumTokens(rawExchanges);
-
     return { exchanges, summary, found: exchanges.length > 0, sessionInfo };
-  } catch {
-    return { exchanges: [], summary: null };
-  } finally {
-    dbClose(db);
-  }
+  } catch { return { exchanges: [], summary: null }; }
+  finally { dbClose(db); }
 }
 
 module.exports = { collectAll, readSessionDetail, opencodeDbPath };
