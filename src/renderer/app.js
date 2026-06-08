@@ -9,7 +9,7 @@
   ];
 
   const PERIOD_LABELS = { today: "今日", month: "本月", allTime: "总计" };
-  const ITEMS_PER_PAGE = 8;
+  const ITEMS_PER_PAGE = 4;
 
   const MODEL_ICONS = {
     deepseek: "deepseek.svg",

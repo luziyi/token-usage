@@ -31,7 +31,7 @@ let tickPending = false;
 function createWindow() {
   const options = {
     width: 420,
-    height: 640,
+    height: 580,
     resizable: false,
     frame: false,
     transparent: true,
