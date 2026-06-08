@@ -347,6 +347,9 @@ body {
   border-radius: 6px;
   transition: background 0.12s;
   cursor: pointer;
+  height: 56px;
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
 .row:hover {
@@ -661,6 +664,9 @@ body {
   padding: 6px 8px;
   border-radius: 6px;
   transition: background 0.12s;
+  height: 56px;
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
 .detail-exchange:hover {
