@@ -163,7 +163,12 @@ function watchDbFiles() {
   const dbPath = opencodeDbPath();
   try {
     if (fs.existsSync(dbPath)) {
-      opencodeWatcher = chokidar.watch(dbPath, {
+      const watchPaths = [dbPath];
+      const walPath = dbPath + "-wal";
+      if (fs.existsSync(walPath)) watchPaths.push(walPath);
+      const shmPath = dbPath + "-shm";
+      if (fs.existsSync(shmPath)) watchPaths.push(shmPath);
+      opencodeWatcher = chokidar.watch(watchPaths, {
         ignoreInitial: true,
         persistent: true,
         usePolling: true,
