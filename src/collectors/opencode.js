@@ -82,8 +82,13 @@ async function openDb(home) {
   const dbPath = opencodeDbPath(home);
   if (!fs.existsSync(dbPath)) return null;
   const SQL = await getSqlJs();
-  const buffer = fs.readFileSync(dbPath);
-  return new SQL.Database(buffer);
+  try {
+    // Open by path so sql.js can discover -wal / -shm files
+    return new SQL.Database(dbPath, { filename: true });
+  } catch {
+    const buffer = fs.readFileSync(dbPath);
+    return new SQL.Database(buffer);
+  }
 }
 
 async function collectAll({ allTimeSince, homeDir }) {
@@ -316,8 +321,12 @@ async function readSessionDetail({ sessionId, homeDir }) {
   try {
     if (!fs.existsSync(dbPath)) return { exchanges: [], summary: null };
     const SQL = await getSqlJs();
-    const buffer = fs.readFileSync(dbPath);
-    db = new SQL.Database(buffer);
+    try {
+      db = new SQL.Database(dbPath, { filename: true });
+    } catch {
+      const buffer = fs.readFileSync(dbPath);
+      db = new SQL.Database(buffer);
+    }
   } catch {
     return { exchanges: [], summary: null };
   }
