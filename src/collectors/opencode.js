@@ -78,12 +78,34 @@ function rowToExchange(row) {
   };
 }
 
+const tmpDbs = new WeakMap();
+
 async function openDb(home) {
   const dbPath = opencodeDbPath(home);
   if (!fs.existsSync(dbPath)) return null;
   const SQL = await getSqlJs();
   const buffer = fs.readFileSync(dbPath);
-  return new SQL.Database(buffer);
+  const db = new SQL.Database(buffer);
+
+  const walPath = dbPath + "-wal";
+  if (fs.existsSync(walPath) && fs.statSync(walPath).mtimeMs > fs.statSync(dbPath).mtimeMs) {
+    db.close();
+    try {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "tku-"));
+      const tmpDb = path.join(tmpDir, "opencode.db");
+      fs.copyFileSync(dbPath, tmpDb);
+      fs.copyFileSync(walPath, tmpDb + "-wal");
+      const shmPath = dbPath + "-shm";
+      if (fs.existsSync(shmPath)) fs.copyFileSync(shmPath, tmpDb + "-shm");
+      const walDb = new SQL.Database(tmpDb, { filename: true });
+      tmpDbs.set(walDb, tmpDir);
+      return walDb;
+    } catch {
+      return new SQL.Database(buffer);
+    }
+  }
+
+  return db;
 }
 
 async function collectAll({ allTimeSince, homeDir }) {
@@ -118,7 +140,12 @@ async function collectAll({ allTimeSince, homeDir }) {
   } catch {
   } finally {
     try {
-      if (db) db.close();
+      if (db) {
+        const tmpDir = tmpDbs.get(db);
+        db.close();
+        tmpDbs.delete(db);
+        if (tmpDir) try { fs.rmSync(tmpDir, { recursive: true }); } catch {}
+      }
     } catch {}
   }
 
