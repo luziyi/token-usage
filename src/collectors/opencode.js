@@ -131,7 +131,8 @@ function sqlite3All(sqlite3Path, dbPath, sql, params) {
   const fullSql = ".mode json\n" + substParams(sql, params) + ";\n";
   const result = execFileSync(sqlite3Path, [dbPath], {
     encoding: "utf8",
-    timeout: 10000,
+    timeout: 30000,
+    maxBuffer: 100 * 1024 * 1024,
     input: fullSql,
     stdio: ["pipe", "pipe", "ignore"],
   });
