@@ -121,6 +121,14 @@ body {
   font-size: 10px;
 }
 
+.app-version {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
+  opacity: 0.6;
+  margin-left: -2px;
+}
+
 .live-dot {
   width: 5px;
   height: 5px;

@@ -767,6 +767,10 @@
 
   function init() {
     initIconColors();
+    api.getAppInfo().then((info) => {
+      const ver = document.getElementById("appVersion");
+      if (ver && info.version) ver.textContent = "v" + info.version;
+    });
     window.addEventListener("contextmenu", (e) => e.preventDefault());
     document.addEventListener("contextmenu", (e) => e.preventDefault());
     cacheElements();
