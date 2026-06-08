@@ -760,18 +760,9 @@
     if (state.sessionDetail && !state.sessionDetail.loading) {
       api.getSessionDetail({ sessionId: state.sessionDetail.sessionId }).then((r) => {
         if (!r || !r.summary) return;
+        state.sessionDetail = { ...state.sessionDetail, ...r, loading: false };
         animateNumber(els.totalTokens, r.summary.totalTokens || 0);
         els.cost.textContent = formatCost(r.summary.totalCost || 0, state.settings?.currency);
-        state.sessionDetail = { ...state.sessionDetail, ...r, loading: false };
-        if (!state._detailDebounce) {
-          state._detailDebounce = true;
-          setTimeout(() => {
-            state._detailDebounce = false;
-            const scrollTop = els.sessionDetail.scrollTop;
-            render();
-            requestAnimationFrame(() => { els.sessionDetail.scrollTop = scrollTop; });
-          }, 10000);
-        }
       });
     } else if (!state.sessionDetail) {
       render();
@@ -821,7 +812,15 @@
         }, 400);
         if (data) {
           state.data = data;
-          if (!state.sessionDetail) render();
+          if (state.sessionDetail && !state.sessionDetail.loading) {
+            api.getSessionDetail({ sessionId: state.sessionDetail.sessionId }).then((r) => {
+              if (!r) return;
+              state.sessionDetail = { ...state.sessionDetail, ...r, loading: false };
+              render();
+            });
+          } else if (!state.sessionDetail) {
+            render();
+          }
         }
       });
     });
