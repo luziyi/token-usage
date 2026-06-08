@@ -760,9 +760,10 @@
     if (state.sessionDetail && !state.sessionDetail.loading) {
       api.getSessionDetail({ sessionId: state.sessionDetail.sessionId }).then((r) => {
         if (!r || !r.summary) return;
+        const scrollTop = els.sessionDetail.scrollTop;
         state.sessionDetail = { ...state.sessionDetail, ...r, loading: false };
-        animateNumber(els.totalTokens, r.summary.totalTokens || 0);
-        els.cost.textContent = formatCost(r.summary.totalCost || 0, state.settings?.currency);
+        render();
+        requestAnimationFrame(() => { els.sessionDetail.scrollTop = scrollTop; });
       });
     } else if (!state.sessionDetail) {
       render();
