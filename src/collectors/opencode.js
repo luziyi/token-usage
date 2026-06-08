@@ -78,13 +78,64 @@ function rowToExchange(row) {
   };
 }
 
+// -- DB engine: better-sqlite3 (native, WAL-aware), fallback to sql.js buffer --
+
+let _BetterSqlite3 = null;
+function tryBetterSqlite3() {
+  if (_BetterSqlite3 === null || _BetterSqlite3 === undefined) {
+    try {
+      _BetterSqlite3 = require("better-sqlite3");
+    } catch {
+      _BetterSqlite3 = false;
+    }
+  }
+  return _BetterSqlite3;
+}
+
+function isBetterSqlite3(db) {
+  return db && db.constructor && db.constructor.name === "Database";
+}
+
+function sqlAll(db, sql, params) {
+  if (isBetterSqlite3(db)) {
+    return params && params.length > 0
+      ? db.prepare(sql).all(...params)
+      : db.prepare(sql).all();
+  }
+  const p = db.prepare(sql);
+  if (params && params.length > 0) p.bind(params);
+  const rows = [];
+  while (p.step()) {
+    rows.push(p.getAsObject());
+  }
+  p.free();
+  return rows;
+}
+
+function dbClose(db) {
+  if (!db) return;
+  try {
+    db.close();
+  } catch {}
+}
+
 async function openDb(home) {
   const dbPath = opencodeDbPath(home);
   if (!fs.existsSync(dbPath)) return null;
+
+  const BS = tryBetterSqlite3();
+  if (BS) {
+    try {
+      return new BS(dbPath, { readonly: true });
+    } catch {}
+  }
+
   const SQL = await getSqlJs();
   const buffer = fs.readFileSync(dbPath);
   return new SQL.Database(buffer);
 }
+
+// -- End DB engine --
 
 async function collectAll({ allTimeSince, homeDir }) {
   const home = homeDir || os.homedir();
@@ -105,34 +156,20 @@ async function collectAll({ allTimeSince, homeDir }) {
 
     const sql =
       EXCHANGE_SQL + whereClause + " GROUP BY s.id ORDER BY s.time_created DESC";
-    const stmt = db.prepare(sql);
-    if (params.length > 0) stmt.bind(params);
-    while (stmt.step()) {
-      const ex = rowToExchange(stmt.getAsObject());
+    const rows = sqlAll(db, sql, params);
+
+    for (const row of rows) {
+      const ex = rowToExchange(row);
       if (ex) exchanges.push(ex);
     }
-    stmt.free();
 
     applyModelSwitchSplit(db, exchanges);
   } catch {
   } finally {
-    try {
-      if (db) db.close();
-    } catch {}
+    dbClose(db);
   }
 
   return exchanges;
-}
-
-function sqlAll(db, sql, params) {
-  const p = db.prepare(sql);
-  if (params && params.length > 0) p.bind(params);
-  const rows = [];
-  while (p.step()) {
-    rows.push(p.getAsObject());
-  }
-  p.free();
-  return rows;
 }
 
 function applyModelSwitchSplit(db, exchanges) {
@@ -145,9 +182,7 @@ function applyModelSwitchSplit(db, exchanges) {
     `SELECT DISTINCT session_id FROM session_message WHERE type = 'model-switched' AND session_id IN (${placeholders})`,
     collectedIds,
   );
-  const switchedIds = switchRows
-    .map((r) => r.session_id)
-    .filter(Boolean);
+  const switchedIds = switchRows.map((r) => r.session_id).filter(Boolean);
   if (switchedIds.length === 0) return;
 
   const matchSession = (msgSid) => {
@@ -182,12 +217,7 @@ function applyModelSwitchSplit(db, exchanges) {
     const sid = matchSession(r.session_id);
     const key = sid + "::" + mid;
     if (!perModel[key]) {
-      perModel[key] = {
-        sessionId: sid,
-        model: mid,
-        provider: provID,
-        cost: 0,
-      };
+      perModel[key] = { sessionId: sid, model: mid, provider: provID, cost: 0 };
     }
     perModel[key].cost += Number(d.cost) || 0;
   }
@@ -328,8 +358,12 @@ async function readSessionDetail({ sessionId, homeDir }) {
   }
 
   try {
-    const sessionRows = sqlAll(db, `SELECT id, model, time_created, title, directory, project_id FROM session WHERE id = ?`, [sessionId]);
-    let sessionInfo = sessionRows.length > 0 ? sessionRows[0] : null;
+    const sessionRows = sqlAll(
+      db,
+      `SELECT id, model, time_created, title, directory, project_id FROM session WHERE id = ?`,
+      [sessionId],
+    );
+    const sessionInfo = sessionRows.length > 0 ? sessionRows[0] : null;
 
     const msgRows = sqlAll(
       db,
@@ -529,7 +563,7 @@ async function readSessionDetail({ sessionId, homeDir }) {
   } catch {
     return { exchanges: [], summary: null };
   } finally {
-    try { if (db) db.close(); } catch {}
+    dbClose(db);
   }
 }
 
