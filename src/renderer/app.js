@@ -759,8 +759,10 @@
       "更新于 " + new Date(payload.at).toLocaleTimeString();
     if (state.sessionDetail && !state.sessionDetail.loading) {
       api.getSessionDetail({ sessionId: state.sessionDetail.sessionId }).then((r) => {
+        if (!r || !r.summary) return;
         state.sessionDetail = { ...state.sessionDetail, ...r, loading: false };
-        render();
+        animateNumber(els.totalTokens, r.summary.totalTokens || 0);
+        els.cost.textContent = formatCost(r.summary.totalCost || 0, state.settings?.currency);
       });
     } else if (!state.sessionDetail) {
       render();
