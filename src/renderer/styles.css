@@ -325,12 +325,26 @@ body {
 /* Breakdown */
 .breakdown {
   flex: 1;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  overscroll-behavior: contain;
+}
+.breakdown::-webkit-scrollbar {
+  width: 4px;
+}
+.breakdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+.breakdown::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
 }
 
-.page-section-label {
+.section-label {
   font-size: 10px;
   font-weight: 700;
   color: var(--text-dim);
@@ -569,9 +583,23 @@ body {
 /* Session Detail */
 .session-detail {
   flex: 1;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 3px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  overscroll-behavior: contain;
+}
+.session-detail::-webkit-scrollbar {
+  width: 4px;
+}
+.session-detail::-webkit-scrollbar-track {
+  background: transparent;
+}
+.session-detail::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
 }
 
 .detail-header {
@@ -602,53 +630,7 @@ body {
   transform: scale(0.96);
 }
 
-.pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 10px 0 6px;
-  margin-top: auto;
-  border-top: 1px solid var(--border);
-}
-.page-btn {
-  -webkit-appearance: none;
-  appearance: none;
-  background: transparent;
-  border: none;
-  color: var(--text-dim);
-  font-size: 12px;
-  min-width: 26px;
-  height: 26px;
-  border-radius: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s;
-  font-weight: 500;
-}
-.page-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-.page-btn:disabled {
-  opacity: 0.2;
-  cursor: default;
-}
-.page-btn.active {
-  background: var(--accent);
-  color: #fff;
-  font-weight: 600;
-}
-.page-btn.active:hover {
-  background: var(--accent);
-  color: #fff;
-}
-.page-btn.page-nav {
-  font-size: 16px;
-  font-weight: 400;
-}
+
 .page-info {
   font-size: 11px;
   color: var(--text-dim);

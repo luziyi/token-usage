@@ -9,7 +9,6 @@
   ];
 
   const PERIOD_LABELS = { today: "今日", month: "本月", allTime: "总计" };
-  const ITEMS_PER_PAGE = 4;
 
   const MODEL_ICONS = {
     deepseek: "deepseek.svg",
@@ -99,8 +98,6 @@
 
   const state = {
     period: "today",
-    page: 1,
-    detailPage: 1,
     breakdown: "model",
     settings: null,
     data: null,
@@ -411,18 +408,15 @@
 
     if (groups.length === 0) {
       els.breakdown.innerHTML =
-        '<div class="page-section-label">' + BREAKDOWN_MODES.find((m) => m.key === mode).label + '</div><div class="empty-state"><div class="empty-state-icon">&#9632;</div><div class="empty-state-text">暂无数据</div></div>';
+        '<div class="section-label">' + BREAKDOWN_MODES.find((m) => m.key === mode).label + '</div><div class="empty-state"><div class="empty-state-icon">&#9632;</div><div class="empty-state-text">暂无数据</div></div>';
       return;
     }
 
-    const totalPages = Math.ceil(groups.length / ITEMS_PER_PAGE) || 1;
-    const page = Math.min(state.page, totalPages);
-    const pageGroups = groups.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
     const maxTokens = groups[0].tokens || 1;
 
     let html = "";
-    html += `<div class="page-section-label">${BREAKDOWN_MODES.find((m) => m.key === mode).label}</div>`;
-    for (const g of pageGroups) {
+    html += `<div class="section-label">${BREAKDOWN_MODES.find((m) => m.key === mode).label}</div>`;
+    for (const g of groups) {
       const pct = g.tokens / maxTokens;
       const clickable = g.sessionId ? "" : "";
       const toolIcon = g.source ? agentIcon(g.source) : null;
@@ -447,27 +441,7 @@
           <div class="bar"><div class="bar-fill" style="width:${Math.max(2, pct * 100)}%;background:${g.color}"></div></div>
         </div>`;
     }
-    if (totalPages > 1) {
-      html += '<div class="pagination">';
-      html += '<button class="page-btn page-nav"' + (page <= 1 ? ' disabled' : '') + ' data-page="' + (page - 1) + '">&#8249;</button>';
-      const maxVisible = 7;
-      let startP = Math.max(1, page - Math.floor(maxVisible / 2));
-      let endP = Math.min(totalPages, startP + maxVisible - 1);
-      if (endP - startP < maxVisible - 1) startP = Math.max(1, endP - maxVisible + 1);
-      for (let p = startP; p <= endP; p++) {
-        html += '<button class="page-btn page-num' + (p === page ? ' active' : '') + '" data-page="' + p + '">' + p + '</button>';
-      }
-      html += '<button class="page-btn page-nav"' + (page >= totalPages ? ' disabled' : '') + ' data-page="' + (page + 1) + '">&#8250;</button>';
-      html += '</div>';
-    }
     els.breakdown.innerHTML = html;
-
-    els.breakdown.querySelectorAll(".pagination .page-btn").forEach((el) => {
-      el.addEventListener("click", () => {
-        const p = parseInt(el.dataset.page, 10);
-        if (p >= 1 && p <= totalPages) { state.page = p; render(); }
-      });
-    });
 
     if (mode === "session") {
       els.breakdown.querySelectorAll(".row[data-session]").forEach((el) => {
@@ -561,36 +535,8 @@
       .sort((a, b) => (a.startedAt || "").localeCompare(b.startedAt || ""));
     const maxValue = Math.max(1, ...sorted.map((r) => r.tokens?.total || 0));
 
-    const totalPages = Math.ceil(sorted.length / ITEMS_PER_PAGE) || 1;
-    const dp = Math.min(state.detailPage, totalPages);
-    const pageExs = sorted.slice((dp - 1) * ITEMS_PER_PAGE, dp * ITEMS_PER_PAGE);
-
-    for (const ex of pageExs) {
+    for (const ex of sorted) {
       container.append(createExchangeNode(ex, maxValue));
-    }
-
-    if (totalPages > 1) {
-      const nav = document.createElement("div");
-      nav.className = "pagination";
-      const makeBtn = (label, p) => {
-        const btn = document.createElement("button");
-        btn.className = "page-btn" + (label === String(dp) ? " active" : "");
-        btn.textContent = label;
-        btn.dataset.dp = p;
-        if (p < 1 || p > totalPages) btn.disabled = true;
-        btn.addEventListener("click", () => { state.detailPage = p; render(); });
-        return btn;
-      };
-      nav.append(makeBtn("\u2039", dp - 1));
-      const maxVisible = 7;
-      let startP = Math.max(1, dp - Math.floor(maxVisible / 2));
-      let endP = Math.min(totalPages, startP + maxVisible - 1);
-      if (endP - startP < maxVisible - 1) startP = Math.max(1, endP - maxVisible + 1);
-      for (let p = startP; p <= endP; p++) {
-        nav.append(makeBtn(String(p), p));
-      }
-      nav.append(makeBtn("\u203A", dp + 1));
-      container.append(nav);
     }
   }
 
@@ -756,7 +702,6 @@
 
   function switchPeriod(period) {
     state.period = period;
-    state.page = 1;
     state.sessionDetail = null;
     els.tabs.forEach((tab) =>
       tab.classList.toggle("active", tab.dataset.period === period),
@@ -766,7 +711,6 @@
 
   function switchBreakdown(mode) {
     state.breakdown = mode;
-    state.page = 1;
     state.sessionDetail = null;
     closeMenu();
     const label = BREAKDOWN_MODES.find((m) => m.key === mode)?.label || mode;
@@ -824,12 +768,16 @@
     if (state.sessionDetail && !state.sessionDetail.loading) {
       api.getSessionDetail({ sessionId: state.sessionDetail.sessionId }).then((r) => {
         if (!r) return;
+        const sp = els.sessionDetail.scrollTop;
         state.sessionDetail = { ...state.sessionDetail, ...r, loading: false };
         render();
+        els.sessionDetail.scrollTop = sp;
       });
       return;
     }
+    const sp = els.breakdown.scrollTop;
     render();
+    els.breakdown.scrollTop = sp;
   }
 
   function handleSettingsPush(settings) {
