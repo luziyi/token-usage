@@ -78,35 +78,97 @@ function rowToExchange(row) {
   };
 }
 
-const tmpDbs = new WeakMap();
+// -- DB abstraction layer: prefer node:sqlite (native, WAL-aware), fallback to sql.js --
+
+let _NodeSqlite = null;
+function tryNodeSqlite() {
+  if (_NodeSqlite === undefined) {
+    try {
+      _NodeSqlite = require("node:sqlite");
+    } catch {
+      _NodeSqlite = null;
+    }
+  }
+  return _NodeSqlite;
+}
+
+function isNodeSqlite(db) {
+  return db && db.constructor && db.constructor.name === "DatabaseSync";
+}
+
+function dbPrepare(db, sql) {
+  if (isNodeSqlite(db)) {
+    return { _ns: true, stmt: db.prepare(sql), sql };
+  }
+  return { _ns: false, stmt: db.prepare(sql), sql };
+}
+
+function dbBind(ps, params) {
+  if (ps._ns) return;
+  if (params && params.length > 0) ps.stmt.bind(params);
+}
+
+function dbAll(ps) {
+  if (ps._ns) return ps.stmt.all();
+  const rows = [];
+  while (ps.stmt.step()) {
+    rows.push(ps.stmt.getAsObject());
+  }
+  ps.stmt.free();
+  return rows;
+}
+
+function dbExec(db, sql, params) {
+  if (isNodeSqlite(db)) {
+    const p = db.prepare(sql);
+    if (params && params.length > 0) return p.all(...params);
+    return p.all();
+  }
+  const p = db.prepare(sql);
+  if (params && params.length > 0) p.bind(params);
+  const rows = [];
+  while (p.step()) {
+    rows.push(p.getAsObject());
+  }
+  p.free();
+  return rows;
+}
+
+function dbClose(db, extra) {
+  if (!db) return;
+  try {
+    if (isNodeSqlite(db)) {
+      db.close();
+    } else {
+      db.close();
+    }
+  } catch {}
+  if (extra && extra.tmpDir) {
+    try {
+      fs.rmSync(extra.tmpDir, { recursive: true });
+    } catch {}
+  }
+}
 
 async function openDb(home) {
   const dbPath = opencodeDbPath(home);
   if (!fs.existsSync(dbPath)) return null;
-  const SQL = await getSqlJs();
-  const buffer = fs.readFileSync(dbPath);
-  const db = new SQL.Database(buffer);
 
-  const walPath = dbPath + "-wal";
-  if (fs.existsSync(walPath) && fs.statSync(walPath).mtimeMs > fs.statSync(dbPath).mtimeMs) {
-    db.close();
+  // node:sqlite – native binding, handles WAL, no file-locking issues
+  const NS = tryNodeSqlite();
+  if (NS) {
     try {
-      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "tku-"));
-      const tmpDb = path.join(tmpDir, "opencode.db");
-      fs.copyFileSync(dbPath, tmpDb);
-      fs.copyFileSync(walPath, tmpDb + "-wal");
-      const shmPath = dbPath + "-shm";
-      if (fs.existsSync(shmPath)) fs.copyFileSync(shmPath, tmpDb + "-shm");
-      const walDb = new SQL.Database(tmpDb, { filename: true });
-      tmpDbs.set(walDb, tmpDir);
-      return walDb;
-    } catch {
-      return new SQL.Database(buffer);
-    }
+      return new NS.DatabaseSync(dbPath);
+    } catch {}
   }
 
-  return db;
+  // Fallback: sql.js buffer mode
+  const SQL = await getSqlJs();
+  const buffer = fs.readFileSync(dbPath);
+  return new SQL.Database(buffer);
 }
+
+// -- End DB abstraction --
 
 async function collectAll({ allTimeSince, homeDir }) {
   const home = homeDir || os.homedir();
@@ -125,28 +187,21 @@ async function collectAll({ allTimeSince, homeDir }) {
       params.push(since);
     }
 
-    const stmt = db.prepare(
-      EXCHANGE_SQL + whereClause + " GROUP BY s.id ORDER BY s.time_created DESC",
-    );
-    if (params.length > 0) stmt.bind(params);
+    const sql =
+      EXCHANGE_SQL + whereClause + " GROUP BY s.id ORDER BY s.time_created DESC";
+    const ps = dbPrepare(db, sql);
+    dbBind(ps, params);
+    const rows = dbAll(ps);
 
-    while (stmt.step()) {
-      const ex = rowToExchange(stmt.getAsObject());
+    for (const row of rows) {
+      const ex = rowToExchange(row);
       if (ex) exchanges.push(ex);
     }
-    stmt.free();
 
     applyModelSwitchSplit(db, exchanges);
   } catch {
   } finally {
-    try {
-      if (db) {
-        const tmpDir = tmpDbs.get(db);
-        db.close();
-        tmpDbs.delete(db);
-        if (tmpDir) try { fs.rmSync(tmpDir, { recursive: true }); } catch {}
-      }
-    } catch {}
+    dbClose(db);
   }
 
   return exchanges;
@@ -157,16 +212,14 @@ function applyModelSwitchSplit(db, exchanges) {
   if (collectedIds.length === 0) return;
 
   const placeholders = collectedIds.map(() => "?").join(",");
-  const switchCheck = db.prepare(
+  const switchRows = dbExec(
+    db,
     `SELECT DISTINCT session_id FROM session_message WHERE type = 'model-switched' AND session_id IN (${placeholders})`,
+    collectedIds,
   );
-  switchCheck.bind(collectedIds);
-  const switchedIds = [];
-  while (switchCheck.step()) {
-    const r = switchCheck.getAsObject();
-    if (r.session_id) switchedIds.push(r.session_id);
-  }
-  switchCheck.free();
+  const switchedIds = switchRows
+    .map((r) => r.session_id)
+    .filter(Boolean);
   if (switchedIds.length === 0) return;
 
   const matchSession = (msgSid) => {
@@ -181,16 +234,16 @@ function applyModelSwitchSplit(db, exchanges) {
   const likeList = switchedIds
     .map(() => "session_id LIKE ? || '%'")
     .join(" OR ");
-  const st1 = db.prepare(`
-    SELECT session_id, time_created, data FROM message
-    WHERE (${likeList})
-      AND json_extract(data, '$.role') = 'assistant'
-      AND (json_extract(data, '$.modelID') IS NOT NULL OR json_extract(data, '$.model.modelID') IS NOT NULL)
-    ORDER BY session_id, time_created ASC
-  `);
-  st1.bind(switchedIds);
-  while (st1.step()) {
-    const r = st1.getAsObject();
+  const st1Rows = dbExec(
+    db,
+    `SELECT session_id, time_created, data FROM message
+      WHERE (${likeList})
+        AND json_extract(data, '$.role') = 'assistant'
+        AND (json_extract(data, '$.modelID') IS NOT NULL OR json_extract(data, '$.model.modelID') IS NOT NULL)
+      ORDER BY session_id, time_created ASC`,
+    switchedIds,
+  );
+  for (const r of st1Rows) {
     let d = {};
     try {
       d = JSON.parse(r.data || "{}");
@@ -210,7 +263,6 @@ function applyModelSwitchSplit(db, exchanges) {
     }
     perModel[key].cost += Number(d.cost) || 0;
   }
-  st1.free();
 
   const needFallback = switchedIds.filter(
     (sid) => !Object.keys(perModel).some((k) => k.startsWith(sid + "::")),
@@ -219,10 +271,10 @@ function applyModelSwitchSplit(db, exchanges) {
     const timeline = {};
     for (const sid of needFallback) {
       timeline[sid] = [];
-      const sRow = db.exec("SELECT model FROM session WHERE id = ?", [sid]);
-      if (sRow.length > 0 && sRow[0].values.length > 0) {
+      const sRows = dbExec(db, "SELECT model FROM session WHERE id = ?", [sid]);
+      if (sRows.length > 0) {
         try {
-          const p = JSON.parse(sRow[0].values[0][0] || "{}");
+          const p = JSON.parse(sRows[0].model || "{}");
           if (p.id)
             timeline[sid].push({
               time: 0,
@@ -233,14 +285,14 @@ function applyModelSwitchSplit(db, exchanges) {
       }
     }
 
-    const fb1 = db.prepare(`
-      SELECT session_id, data FROM session_message
-      WHERE (${needFallback.map(() => "session_id LIKE ? || '%'").join(" OR ")}) AND type = 'model-switched'
-      ORDER BY session_id, json_extract(data, '$.time.created') ASC
-    `);
-    fb1.bind(needFallback);
-    while (fb1.step()) {
-      const r = fb1.getAsObject();
+    const fb1Rows = dbExec(
+      db,
+      `SELECT session_id, data FROM session_message
+        WHERE (${needFallback.map(() => "session_id LIKE ? || '%'").join(" OR ")}) AND type = 'model-switched'
+        ORDER BY session_id, json_extract(data, '$.time.created') ASC`,
+      needFallback,
+    );
+    for (const r of fb1Rows) {
       let d = {};
       try {
         d = JSON.parse(r.data || "{}");
@@ -256,17 +308,16 @@ function applyModelSwitchSplit(db, exchanges) {
           provider: mi.providerID || "",
         });
     }
-    fb1.free();
 
-    const fb2 = db.prepare(`
-      SELECT session_id, time_created, data FROM message
-      WHERE (${needFallback.map(() => "session_id LIKE ? || '%'").join(" OR ")})
-        AND json_extract(data, '$.role') = 'assistant'
-      ORDER BY session_id, time_created ASC
-    `);
-    fb2.bind(needFallback);
-    while (fb2.step()) {
-      const r = fb2.getAsObject();
+    const fb2Rows = dbExec(
+      db,
+      `SELECT session_id, time_created, data FROM message
+        WHERE (${needFallback.map(() => "session_id LIKE ? || '%'").join(" OR ")})
+          AND json_extract(data, '$.role') = 'assistant'
+        ORDER BY session_id, time_created ASC`,
+      needFallback,
+    );
+    for (const r of fb2Rows) {
       let d = {};
       try {
         d = JSON.parse(r.data || "{}");
@@ -290,7 +341,6 @@ function applyModelSwitchSplit(db, exchanges) {
       }
       perModel[key].cost += Number(d.cost) || 0;
     }
-    fb2.free();
   }
 
   const switchedSet = new Set(switchedIds);
@@ -339,39 +389,27 @@ function applyModelSwitchSplit(db, exchanges) {
 async function readSessionDetail({ sessionId, homeDir }) {
   const home = homeDir || os.homedir();
   const dbPath = opencodeDbPath(home);
+
   let db;
   try {
     if (!fs.existsSync(dbPath)) return { exchanges: [], summary: null };
-    const SQL = await getSqlJs();
-    const buffer = fs.readFileSync(dbPath);
-    db = new SQL.Database(buffer);
+    db = await openDb(home);
+    if (!db) return { exchanges: [], summary: null };
   } catch {
     return { exchanges: [], summary: null };
   }
 
   try {
-    const sessionStmt = db.prepare(`
-      SELECT id, model, time_created, title, directory, project_id
-      FROM session WHERE id = ?
-    `);
-    sessionStmt.bind([sessionId]);
-    let sessionInfo = null;
-    if (sessionStmt.step()) {
-      sessionInfo = sessionStmt.getAsObject();
-    }
-    sessionStmt.free();
+    const sessionRows = dbExec(db, `SELECT id, model, time_created, title, directory, project_id FROM session WHERE id = ?`, [sessionId]);
+    let sessionInfo = sessionRows.length > 0 ? sessionRows[0] : null;
 
-    const msgStmt = db.prepare(`
-      SELECT id, session_id, time_created, data
-      FROM message
-      WHERE session_id LIKE ? || '%'
-      ORDER BY time_created ASC, id ASC
-    `);
-    msgStmt.bind([sessionId]);
-
+    const msgRows = dbExec(
+      db,
+      `SELECT id, session_id, time_created, data FROM message WHERE session_id LIKE ? || '%' ORDER BY time_created ASC, id ASC`,
+      [sessionId],
+    );
     const messages = [];
-    while (msgStmt.step()) {
-      const row = msgStmt.getAsObject();
+    for (const row of msgRows) {
       let data = {};
       try {
         data = JSON.parse(row.data || "{}");
@@ -383,19 +421,14 @@ async function readSessionDetail({ sessionId, homeDir }) {
         ...data,
       });
     }
-    msgStmt.free();
 
-    const partStmt = db.prepare(`
-      SELECT id, message_id, session_id, time_created, data
-      FROM part
-      WHERE session_id LIKE ? || '%'
-      ORDER BY time_created ASC, id ASC
-    `);
-    partStmt.bind([sessionId]);
-
+    const partRows = dbExec(
+      db,
+      `SELECT id, message_id, session_id, time_created, data FROM part WHERE session_id LIKE ? || '%' ORDER BY time_created ASC, id ASC`,
+      [sessionId],
+    );
     const partsMap = {};
-    while (partStmt.step()) {
-      const row = partStmt.getAsObject();
+    for (const row of partRows) {
       let data = {};
       try {
         data = JSON.parse(row.data || "{}");
@@ -404,7 +437,6 @@ async function readSessionDetail({ sessionId, homeDir }) {
       if (!partsMap[mid]) partsMap[mid] = [];
       partsMap[mid].push(data);
     }
-    partStmt.free();
 
     const exchanges = [];
     let current = null;
@@ -569,9 +601,7 @@ async function readSessionDetail({ sessionId, homeDir }) {
   } catch {
     return { exchanges: [], summary: null };
   } finally {
-    try {
-      if (db) db.close();
-    } catch {}
+    dbClose(db);
   }
 }
 
