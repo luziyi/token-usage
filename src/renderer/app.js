@@ -757,7 +757,14 @@
     updateLiveDot(true);
     els.status.textContent =
       "更新于 " + new Date(payload.at).toLocaleTimeString();
-    if (!state.sessionDetail) render();
+    if (state.sessionDetail && !state.sessionDetail.loading) {
+      api.getSessionDetail({ sessionId: state.sessionDetail.sessionId }).then((r) => {
+        state.sessionDetail = { ...state.sessionDetail, ...r, loading: false };
+        render();
+      });
+    } else if (!state.sessionDetail) {
+      render();
+    }
   }
 
   function handleSettingsPush(settings) {
