@@ -325,27 +325,12 @@ body {
 /* Breakdown */
 .breakdown {
   flex: 1;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-  overscroll-behavior: contain;
 }
 
-.breakdown::-webkit-scrollbar {
-  width: 4px;
-}
-.breakdown::-webkit-scrollbar-track {
-  background: transparent;
-}
-.breakdown::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 2px;
-}
-
-.section-label {
+.page-section-label {
   font-size: 10px;
   font-weight: 700;
   color: var(--text-dim);
@@ -584,24 +569,9 @@ body {
 /* Session Detail */
 .session-detail {
   flex: 1;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 3px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-  overscroll-behavior: contain;
-}
-
-.session-detail::-webkit-scrollbar {
-  width: 4px;
-}
-.session-detail::-webkit-scrollbar-track {
-  background: transparent;
-}
-.session-detail::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 2px;
 }
 
 .detail-header {
@@ -630,6 +600,52 @@ body {
 }
 .detail-back:active {
   transform: scale(0.96);
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 0 4px;
+  margin-top: auto;
+}
+.page-btn {
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 14px;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+.page-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.page-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.page-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.page-btn.active:hover {
+  background: var(--accent);
+}
+.page-info {
+  font-size: 11px;
+  color: var(--text-dim);
+  min-width: 40px;
+  text-align: center;
 }
 
 .detail-info {

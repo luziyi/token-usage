@@ -29,17 +29,12 @@ let tickInFlight = false;
 let tickPending = false;
 
 function createWindow() {
-  const savedBounds = settings?.windowBounds;
   const options = {
-    width: savedBounds?.width || 420,
-    height: savedBounds?.height || 640,
-    minWidth: 320,
-    minHeight: 400,
-    maxWidth: 1400,
-    maxHeight: 2000,
+    width: 420,
+    height: 640,
+    resizable: false,
     frame: false,
     transparent: true,
-    resizable: true,
     skipTaskbar: false,
     alwaysOnTop: false,
     webPreferences: {
@@ -50,40 +45,12 @@ function createWindow() {
     },
   };
 
-  if (savedBounds && typeof savedBounds.x === "number") {
-    options.x = savedBounds.x;
-    options.y = savedBounds.y;
-  }
-
   mainWindow = new BrowserWindow(options);
   mainWindow.loadFile(path.join(__dirname, "renderer", "index.html"));
 
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
-  mainWindow.on("resize", () => persistBoundsSoon());
-  mainWindow.on("move", () => persistBoundsSoon());
-}
-
-function persistBoundsSoon() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindow.isMinimized() || mainWindow.isFullScreen()) return;
-  const bounds = mainWindow.getBounds();
-  const prev = settings.windowBounds || {};
-  if (
-    prev.x === bounds.x &&
-    prev.y === bounds.y &&
-    prev.width === bounds.width &&
-    prev.height === bounds.height
-  )
-    return;
-  settings.windowBounds = {
-    x: bounds.x,
-    y: bounds.y,
-    width: bounds.width,
-    height: bounds.height,
-  };
-  saveSettings(settings);
 }
 
 function ensureClaudeConfig() {
