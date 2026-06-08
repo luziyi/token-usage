@@ -9,7 +9,7 @@
   ];
 
   const PERIOD_LABELS = { today: "今日", month: "本月", allTime: "总计" };
-  const ITEMS_PER_PAGE = 5;
+  const ITEMS_PER_PAGE = 8;
 
   const MODEL_ICONS = {
     deepseek: "deepseek.svg",
@@ -385,19 +385,26 @@
         )
         .sort((a, b) => (b.timeCreated || 0) - (a.timeCreated || 0))
         .slice(0, 100)
-        .map((s) => ({
-          key: s.sessionId,
-          modelKey: s.model,
-          provider: s.provider,
-          source: s.source,
-          label: formatSessionTitle(s.title, s.sessionId.substring(0, 16)),
-          sublabel: compactTime(s.timestamp),
-          tokens: s.input + s.output + s.cacheRead + s.cacheWrite + s.reasoning,
-          cost: s.cost,
-          detail: "",
-          color: sourceColor(s.source),
-          sessionId: s.sessionId,
-        }));
+        .map((s) => {
+          const cacheTotal = s.cacheRead + s.cacheWrite;
+          const cacheRate = (s.input + s.cacheRead) > 0
+            ? (s.cacheRead / (s.input + s.cacheRead) * 100).toFixed(0)
+            : null;
+          const detail = "IN " + formatNumber(s.input) + " · OUT " + formatNumber(s.output) + " · CACHE " + formatNumber(cacheTotal) + (cacheRate ? " · 缓存 " + cacheRate + "%" : "");
+          return {
+            key: s.sessionId,
+            modelKey: s.model,
+            provider: s.provider,
+            source: s.source,
+            label: formatSessionTitle(s.title, s.sessionId.substring(0, 16)),
+            sublabel: compactTime(s.timestamp),
+            tokens: s.input + s.output + cacheTotal + s.reasoning,
+            cost: s.cost,
+            detail: detail,
+            color: sourceColor(s.source),
+            sessionId: s.sessionId,
+          };
+        });
     }
 
     groups.sort((a, b) => b.tokens - a.tokens);
