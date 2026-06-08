@@ -78,10 +78,10 @@ function rowToExchange(row) {
   };
 }
 
-function openDb(home) {
+async function openDb(home) {
   const dbPath = opencodeDbPath(home);
   if (!fs.existsSync(dbPath)) return null;
-  const SQL = getSqlJs();
+  const SQL = await getSqlJs();
   const buffer = fs.readFileSync(dbPath);
   return new SQL.Database(buffer);
 }
@@ -92,8 +92,7 @@ async function collectAll({ allTimeSince, homeDir }) {
 
   let db;
   try {
-    const SQL = await getSqlJs();
-    db = openDb(home);
+    db = await openDb(home);
     if (!db) return [];
 
     const since = allTimeSince ? new Date(allTimeSince).getTime() : 0;
