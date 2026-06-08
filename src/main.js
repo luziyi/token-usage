@@ -6,12 +6,9 @@ const chokidar = require("chokidar");
 const { readSettings, saveSettings } = require("./store");
 const {
   collectAllPeriods,
-  collectRawExchanges,
   opencodeCollector,
   claudeCollector,
 } = require("./collectors");
-const { buildAggregate } = require("./calculator");
-const persist = require("./persist");
 
 const APP_NAME = "Token Usage";
 
@@ -89,6 +86,29 @@ function persistBoundsSoon() {
   saveSettings(settings);
 }
 
+function ensureClaudeConfig() {
+  const settingsPath = path.join(os.homedir(), ".claude", "settings.json");
+  let claudeSettings = {};
+
+  try {
+    if (fs.existsSync(settingsPath)) {
+      claudeSettings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    }
+  } catch {}
+
+  if (claudeSettings.cleanupPeriodDays !== undefined) return;
+
+  claudeSettings.cleanupPeriodDays = 36500;
+  try {
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify(claudeSettings, null, 2) + "\n",
+      "utf8",
+    );
+  } catch {}
+}
+
 async function collectAndPush() {
   try {
     const current = await collectAllPeriods({
@@ -96,37 +116,30 @@ async function collectAndPush() {
       homeDir: os.homedir(),
     });
 
-    // Filter out exchanges with 0 total tokens (interrupted responses)
-    const validExchanges = current.rawExchanges.filter(isValidExchange);
-
-    // Persist raw exchanges to DB (historical archive)
-    persist.upsertExchanges(validExchanges);
-    persist.saveToDisk();
-
-    // Merge with DB historical data for display
-    const dbExchanges = persist.readAllExchanges();
-    let mergedPeriods;
-    if (dbExchanges.length > 0) {
-      const merged = mergeExchanges(dbExchanges, validExchanges);
-      mergedPeriods = buildPeriodData(merged, settings.allTimeSince);
-    } else {
-      mergedPeriods = {
-        today: current.today,
-        month: current.month,
-        allTime: current.allTime,
-      };
-    }
-
-    lastCollected = mergedPeriods;
+    lastCollected = {
+      today: current.today,
+      month: current.month,
+      allTime: current.allTime,
+    };
 
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("data:push", {
-        data: mergedPeriods,
+        data: lastCollected,
         settings: settingsForRenderer(),
         at: new Date().toISOString(),
       });
     }
   } catch (err) {
+    if (lastCollected) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("data:push", {
+          data: lastCollected,
+          settings: settingsForRenderer(),
+          at: new Date().toISOString(),
+        });
+      }
+      return;
+    }
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("data:push", {
         error: err.message,
@@ -134,118 +147,6 @@ async function collectAndPush() {
       });
     }
   }
-}
-
-function mergeExchanges(dbExchanges, currentExchanges) {
-  const map = new Map();
-  // DB first
-  for (const ex of dbExchanges) {
-    const key =
-      ex.source + ":" + ex.sessionId + ":" + ex.model + ":" + ex.timeCreated;
-    map.set(key, ex);
-  }
-  // Current overwrites
-  for (const ex of currentExchanges) {
-    const key =
-      ex.source + ":" + ex.sessionId + ":" + ex.model + ":" + ex.timeCreated;
-    map.set(key, ex);
-  }
-  return Array.from(map.values());
-}
-
-function buildPeriodData(allExchanges, allTimeSince) {
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const monthStart = new Date(
-    todayStart.getFullYear(),
-    todayStart.getMonth(),
-    1,
-  );
-  const since = allTimeSince ? new Date(allTimeSince).getTime() : 0;
-
-  const today = {
-    period: "today",
-    exchanges: [],
-    aggregated: null,
-    totalExchanges: 0,
-    totalSessions: 0,
-  };
-  const month = {
-    period: "month",
-    exchanges: [],
-    aggregated: null,
-    totalExchanges: 0,
-    totalSessions: 0,
-  };
-  const allTime = {
-    period: "allTime",
-    exchanges: [],
-    aggregated: null,
-    totalExchanges: 0,
-    totalSessions: 0,
-  };
-
-  const seenToday = new Set(),
-    seenMonth = new Set(),
-    seenAll = new Set();
-  const start = todayStart.getTime();
-  const mStart = monthStart.getTime();
-
-  if (!Number.isNaN(since) && since > 0) {
-    for (const ex of allExchanges) {
-      const t = ex.timeCreated;
-      if (t >= since) {
-        allTime.exchanges.push(ex);
-        if (ex.sessionId) seenAll.add(ex.sessionId);
-        if (t >= mStart) {
-          month.exchanges.push(ex);
-          if (ex.sessionId) seenMonth.add(ex.sessionId);
-          if (t >= start) {
-            today.exchanges.push(ex);
-            if (ex.sessionId) seenToday.add(ex.sessionId);
-          }
-        }
-      }
-    }
-  } else {
-    for (const ex of allExchanges) {
-      allTime.exchanges.push(ex);
-      if (ex.sessionId) seenAll.add(ex.sessionId);
-      const t = ex.timeCreated;
-      if (t >= mStart) {
-        month.exchanges.push(ex);
-        if (ex.sessionId) seenMonth.add(ex.sessionId);
-        if (t >= start) {
-          today.exchanges.push(ex);
-          if (ex.sessionId) seenToday.add(ex.sessionId);
-        }
-      }
-    }
-  }
-
-  today.aggregated = buildAggregate(today.exchanges);
-  today.totalExchanges = today.exchanges.length;
-  today.totalSessions = seenToday.size;
-
-  month.aggregated = buildAggregate(month.exchanges);
-  month.totalExchanges = month.exchanges.length;
-  month.totalSessions = seenMonth.size;
-
-  allTime.aggregated = buildAggregate(allTime.exchanges);
-  allTime.totalExchanges = allTime.exchanges.length;
-  allTime.totalSessions = seenAll.size;
-
-  return { today, month, allTime };
-}
-
-function isValidExchange(ex) {
-  const total =
-    (ex.inputTokens || 0) +
-    (ex.outputTokens || 0) +
-    (ex.cacheReadInputTokens || 0) +
-    (ex.cacheCreationInputTokens || 0) +
-    (ex.reasoningTokens || 0);
-  return total > 0;
 }
 
 function opencodeDbPath() {
@@ -259,24 +160,21 @@ function claudeProjectsPath() {
 function watchDbFiles() {
   stopWatchers();
 
-  // Watch OpenCode DB
   const dbPath = opencodeDbPath();
   try {
     if (fs.existsSync(dbPath)) {
-      const dbDir = path.dirname(dbPath);
       opencodeWatcher = chokidar.watch(dbPath, {
         ignoreInitial: true,
         persistent: true,
         usePolling: true,
-        interval: 1000,
-        awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 200 },
+        interval: 300,
+        awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 },
       });
       opencodeWatcher.on("all", () => scheduleWatchTick());
       opencodeWatcher.on("error", () => {});
     }
   } catch {}
 
-  // Watch Claude Code projects directory for JSONL files
   try {
     const projectsDir = claudeProjectsPath();
     if (fs.existsSync(projectsDir)) {
@@ -285,8 +183,8 @@ function watchDbFiles() {
         ignoreInitial: true,
         persistent: true,
         usePolling: true,
-        interval: 1000,
-        awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 200 },
+        interval: 300,
+        awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 },
       });
       claudeWatcher.on("all", () => {
         claudeCollector.clearCache();
@@ -321,7 +219,7 @@ function scheduleWatchTick() {
   watchDebounceTimer = setTimeout(() => {
     watchDebounceTimer = null;
     runTick("watch");
-  }, 800);
+  }, 200);
 }
 
 async function runTick(reason) {
@@ -346,7 +244,7 @@ function startCollector(skipImmediate) {
   if (!skipImmediate) runTick("start");
   watchDbFiles();
   const intervalMs = Math.max(
-    2000,
+    1000,
     Math.min(300000, Number(settings.refreshMs) || 5000),
   );
   collectorTimer = setInterval(() => runTick("interval"), intervalMs);
@@ -385,7 +283,6 @@ function setupIPC() {
   ipcMain.handle("data:get", () => lastCollected);
 
   ipcMain.handle("session:getDetail", async (_event, { sessionId }) => {
-    // Try OpenCode first, then Claude Code
     const opencodeResult = await opencodeCollector.readSessionDetail({
       sessionId,
       homeDir: os.homedir(),
@@ -424,49 +321,14 @@ function setupIPC() {
   }));
 }
 
-function pushToRenderer(data, settingsOverride, at) {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("data:push", {
-      data,
-      settings: settingsOverride || settingsForRenderer(),
-      at: at || new Date().toISOString(),
-    });
-  }
-}
-
 app.whenReady().then(async () => {
   settings = readSettings();
-  await persist.init();
-  persist.removeStatsCacheEntries();
+  ensureClaudeConfig();
   setupIPC();
   createWindow();
 
-  // Fast path: show cached data from local DB immediately (no source file reads)
-  const existing = persist.readAllExchanges();
-  if (existing.length > 0) {
-    lastCollected = buildPeriodData(existing, settings.allTimeSince);
-    pushToRenderer(lastCollected);
-  }
-
-  // Defer source file reading so the window renders first
-  setTimeout(async () => {
-    if (existing.length === 0) {
-      // First run: seed DB from sources once, then start collector without re-reading
-      try {
-        const seed = await collectRawExchanges({
-          allTimeSince: settings.allTimeSince,
-          homeDir: os.homedir(),
-        });
-        persist.upsertExchanges(seed);
-        persist.saveToDisk();
-        lastCollected = buildPeriodData(seed, settings.allTimeSince);
-        pushToRenderer(lastCollected);
-      } catch {}
-      startCollector(true); // skip immediate tick — seed already has fresh data
-    } else {
-      // Sync from sources in background, user already sees cached data
-      startCollector();
-    }
+  setTimeout(() => {
+    startCollector();
   }, 50);
 });
 
@@ -480,7 +342,6 @@ app.on("second-instance", () => {
 
 app.on("window-all-closed", () => {
   stopCollector();
-  persist.close();
   app.quit();
 });
 

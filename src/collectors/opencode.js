@@ -3,193 +3,99 @@ const path = require("node:path");
 const os = require("node:os");
 const { calculateExchangeCost } = require("../calculator");
 const { getSqlJs } = require("../persist");
+const { msToIso, getDateKey, getProviderLabel } = require("./util");
 
 function opencodeDbPath(home) {
   return path.join(home, ".local", "share", "opencode", "opencode.db");
 }
 
-function msToIso(ms) {
-  if (!ms) return "";
-  const d = new Date(Number(ms));
-  return Number.isNaN(d.getTime()) ? "" : d.toISOString();
-}
+const EXCHANGE_SQL = `
+  SELECT
+    s.id, s.model, s.time_created, s.time_updated,
+    s.title, s.directory, s.project_id,
+    COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.input') AS INTEGER) ELSE 0 END), 0) AS tokens_input,
+    COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.output') AS INTEGER) ELSE 0 END), 0) AS tokens_output,
+    COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.reasoning') AS INTEGER) ELSE 0 END), 0) AS tokens_reasoning,
+    COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.cache.read') AS INTEGER) ELSE 0 END), 0) AS tokens_cache_read,
+    COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.cache.write') AS INTEGER) ELSE 0 END), 0) AS tokens_cache_write,
+    COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.cost') AS REAL) ELSE 0 END), 0) AS cost
+  FROM session s
+  LEFT JOIN message m ON m.session_id = s.id
+`;
 
-function getDateKey(ts) {
-  if (!ts) return "unknown";
-  const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return "unknown";
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return y + "-" + m + "-" + day;
-}
+function rowToExchange(row) {
+  const inputTokens = Number(row.tokens_input) || 0;
+  const outputTokens = Number(row.tokens_output) || 0;
+  const cacheRead = Number(row.tokens_cache_read) || 0;
+  const cacheWrite = Number(row.tokens_cache_write) || 0;
+  const reasoningTokens = Number(row.tokens_reasoning) || 0;
+  const cost = Number(row.cost) || 0;
 
-function getProviderLabel(providerId) {
-  const map = {
-    deepseek: "DeepSeek",
-    openai: "OpenAI",
-    anthropic: "Anthropic",
-    google: "Google",
-    meta: "Meta",
-    mistral: "Mistral",
-    azure: "Azure",
-    bedrock: "AWS Bedrock",
-    together_ai: "Together AI",
-    fireworks_ai: "Fireworks AI",
+  if (
+    inputTokens === 0 &&
+    outputTokens === 0 &&
+    cacheRead === 0 &&
+    cacheWrite === 0 &&
+    cost === 0
+  )
+    return null;
+
+  let modelRaw = (row.model || "").trim();
+  if (!modelRaw) return null;
+
+  let modelId = modelRaw;
+  let providerId = "";
+  try {
+    const parsed = JSON.parse(modelRaw);
+    modelId = parsed.id || parsed.modelID || parsed.model || "";
+    providerId = parsed.providerID || "";
+  } catch {}
+
+  if (!modelId) return null;
+
+  const ts = msToIso(row.time_created);
+
+  return {
+    inputTokens,
+    outputTokens,
+    cacheReadInputTokens: cacheRead,
+    cacheCreationInputTokens: cacheWrite,
+    reasoningTokens,
+    model: modelId,
+    modelClean: modelId,
+    provider: providerId,
+    providerLabel: getProviderLabel(providerId),
+    sessionId: row.id,
+    timestamp: ts,
+    dateKey: getDateKey(ts),
+    timeCreated: Number(row.time_created) || 0,
+    costUsd: cost,
+    costFromDb: cost,
+    sessionTitle: row.title || "",
+    dirName: row.directory || "",
+    projectId: row.project_id || "",
+    source: "opencode",
   };
-  return map[providerId] || providerId || "unknown";
 }
 
-async function collect({ period, allTimeSince, homeDir }) {
-  const home = homeDir || os.homedir();
+function openDb(home) {
   const dbPath = opencodeDbPath(home);
-  const exchanges = [];
-
-  let db;
-  try {
-    if (!fs.existsSync(dbPath)) return { exchanges: [], sessions: [] };
-    const SQL = await getSqlJs();
-    const buffer = fs.readFileSync(dbPath);
-    db = new SQL.Database(buffer);
-  } catch {
-    return { exchanges: [], sessions: [] };
-  }
-
-  try {
-    const todayStart = new Date();
-    todayStart.setUTCHours(0, 0, 0, 0);
-    const monthStart = new Date(
-      Date.UTC(todayStart.getUTCFullYear(), todayStart.getUTCMonth(), 1),
-    );
-
-    let whereClause = "";
-    const params = [];
-    if (period === "today") {
-      whereClause = "WHERE s.time_created >= ?";
-      params.push(todayStart.getTime());
-    } else if (period === "month") {
-      whereClause = "WHERE s.time_created >= ?";
-      params.push(monthStart.getTime());
-    } else if (period === "allTime" && allTimeSince) {
-      const since = new Date(allTimeSince);
-      if (!Number.isNaN(since.getTime())) {
-        whereClause = "WHERE s.time_created >= ?";
-        params.push(since.getTime());
-      }
-    }
-
-    const stmt = db.prepare(`
-      SELECT
-        s.id,
-        s.model,
-        s.time_created,
-        s.time_updated,
-        s.title,
-        s.directory,
-        s.project_id
-        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.input') AS INTEGER) ELSE 0 END), 0) AS tokens_input,
-        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.output') AS INTEGER) ELSE 0 END), 0) AS tokens_output,
-        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.reasoning') AS INTEGER) ELSE 0 END), 0) AS tokens_reasoning,
-        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.cache.read') AS INTEGER) ELSE 0 END), 0) AS tokens_cache_read,
-        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.cache.write') AS INTEGER) ELSE 0 END), 0) AS tokens_cache_write,
-        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.cost') AS REAL) ELSE 0 END), 0) AS cost
-      FROM session s
-      LEFT JOIN message m ON m.session_id = s.id
-      ${whereClause}
-      GROUP BY s.id
-      ORDER BY s.time_created DESC
-    `);
-
-    if (params.length > 0) stmt.bind(params);
-
-    while (stmt.step()) {
-      const row = stmt.getAsObject();
-      const inputTokens = Number(row.tokens_input) || 0;
-      const outputTokens = Number(row.tokens_output) || 0;
-      const cacheRead = Number(row.tokens_cache_read) || 0;
-      const cacheWrite = Number(row.tokens_cache_write) || 0;
-      const reasoningTokens = Number(row.tokens_reasoning) || 0;
-      const cost = Number(row.cost) || 0;
-      let modelRaw = (row.model || "").trim();
-      if (!modelRaw) continue;
-
-      let modelId = modelRaw;
-      let providerId = "";
-      try {
-        const parsed = JSON.parse(modelRaw);
-        modelId = parsed.id || parsed.modelID || parsed.model || "";
-        providerId = parsed.providerID || "";
-      } catch {}
-
-      if (!modelId) continue;
-
-      const ts = msToIso(row.time_created);
-
-      if (
-        inputTokens === 0 &&
-        outputTokens === 0 &&
-        cacheRead === 0 &&
-        cacheWrite === 0 &&
-        cost === 0
-      )
-        continue;
-
-      exchanges.push({
-        inputTokens,
-        outputTokens,
-        cacheReadInputTokens: cacheRead,
-        cacheCreationInputTokens: cacheWrite,
-        reasoningTokens,
-        model: modelId,
-        modelClean: modelId,
-        provider: providerId,
-        providerLabel: getProviderLabel(providerId),
-        sessionId: row.id,
-        timestamp: ts,
-        dateKey: getDateKey(ts),
-        timeCreated: Number(row.time_created) || 0,
-        costUsd: cost,
-        costFromDb: cost,
-        sessionTitle: row.title || "",
-        dirName: row.directory || "",
-        projectId: row.project_id || "",
-        source: "opencode",
-      });
-    }
-    stmt.free();
-
-    // --- Handle model-switched sessions ---
-    applyModelSwitchSplit(db, exchanges);
-  } catch (err) {
-    return { exchanges: [], sessions: [], error: err.message };
-  } finally {
-    try {
-      if (db) db.close();
-    } catch {}
-  }
-
-  const seenSessions = new Set(
-    exchanges.map((e) => e.sessionId).filter(Boolean),
-  );
-  return { exchanges, sessions: Array.from(seenSessions) };
+  if (!fs.existsSync(dbPath)) return null;
+  const SQL = getSqlJs();
+  const buffer = fs.readFileSync(dbPath);
+  return new SQL.Database(buffer);
 }
 
 async function collectAll({ allTimeSince, homeDir }) {
   const home = homeDir || os.homedir();
-  const dbPath = opencodeDbPath(home);
   const exchanges = [];
 
   let db;
   try {
-    if (!fs.existsSync(dbPath)) return [];
     const SQL = await getSqlJs();
-    const buffer = fs.readFileSync(dbPath);
-    db = new SQL.Database(buffer);
-  } catch {
-    return [];
-  }
+    db = openDb(home);
+    if (!db) return [];
 
-  try {
     const since = allTimeSince ? new Date(allTimeSince).getTime() : 0;
     let whereClause = "";
     const params = [];
@@ -198,76 +104,14 @@ async function collectAll({ allTimeSince, homeDir }) {
       params.push(since);
     }
 
-    const stmt = db.prepare(`
-      SELECT
-        s.id, s.model, s.time_created, s.time_updated,
-        s.title, s.directory, s.project_id,
-        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.input') AS INTEGER) ELSE 0 END), 0) AS tokens_input,
-        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.output') AS INTEGER) ELSE 0 END), 0) AS tokens_output,
-        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.reasoning') AS INTEGER) ELSE 0 END), 0) AS tokens_reasoning,
-        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.cache.read') AS INTEGER) ELSE 0 END), 0) AS tokens_cache_read,
-        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.tokens.cache.write') AS INTEGER) ELSE 0 END), 0) AS tokens_cache_write,
-        COALESCE(SUM(CASE WHEN json_extract(m.data, '$.role') = 'assistant' THEN CAST(json_extract(m.data, '$.cost') AS REAL) ELSE 0 END), 0) AS cost
-      FROM session s
-      LEFT JOIN message m ON m.session_id = s.id
-      ${whereClause}
-      GROUP BY s.id
-      ORDER BY s.time_created DESC
-    `);
-
+    const stmt = db.prepare(
+      EXCHANGE_SQL + whereClause + " GROUP BY s.id ORDER BY s.time_created DESC",
+    );
     if (params.length > 0) stmt.bind(params);
 
     while (stmt.step()) {
-      const row = stmt.getAsObject();
-      const inputTokens = Number(row.tokens_input) || 0;
-      const outputTokens = Number(row.tokens_output) || 0;
-      const cacheRead = Number(row.tokens_cache_read) || 0;
-      const cacheWrite = Number(row.tokens_cache_write) || 0;
-      const reasoningTokens = Number(row.tokens_reasoning) || 0;
-      const cost = Number(row.cost) || 0;
-      let modelRaw = (row.model || "").trim();
-      if (!modelRaw) continue;
-
-      let modelId = modelRaw;
-      let providerId = "";
-      try {
-        const parsed = JSON.parse(modelRaw);
-        modelId = parsed.id || parsed.model || "";
-        providerId = parsed.providerID || "";
-      } catch {}
-
-      if (!modelId) continue;
-      const ts = msToIso(row.time_created);
-      if (
-        inputTokens === 0 &&
-        outputTokens === 0 &&
-        cacheRead === 0 &&
-        cacheWrite === 0 &&
-        cost === 0
-      )
-        continue;
-
-      exchanges.push({
-        inputTokens,
-        outputTokens,
-        cacheReadInputTokens: cacheRead,
-        cacheCreationInputTokens: cacheWrite,
-        reasoningTokens,
-        model: modelId,
-        modelClean: modelId,
-        provider: providerId,
-        providerLabel: getProviderLabel(providerId),
-        sessionId: row.id,
-        timestamp: ts,
-        dateKey: getDateKey(ts),
-        timeCreated: Number(row.time_created) || 0,
-        costUsd: cost,
-        costFromDb: cost,
-        sessionTitle: row.title || "",
-        dirName: row.directory || "",
-        projectId: row.project_id || "",
-        source: "opencode",
-      });
+      const ex = rowToExchange(stmt.getAsObject());
+      if (ex) exchanges.push(ex);
     }
     stmt.free();
 
@@ -282,13 +126,6 @@ async function collectAll({ allTimeSince, homeDir }) {
   return exchanges;
 }
 
-/**
- * For sessions that had model-switched events, split their single exchange
- * into per-model exchanges proportionally by per-message cost.
- * Uses two strategies:
- * 1. Per-message data.model field (if available)
- * 2. Timestamp-based model-switch timeline (fallback)
- */
 function applyModelSwitchSplit(db, exchanges) {
   const collectedIds = exchanges.map((e) => e.sessionId).filter(Boolean);
   if (collectedIds.length === 0) return;
@@ -306,7 +143,6 @@ function applyModelSwitchSplit(db, exchanges) {
   switchCheck.free();
   if (switchedIds.length === 0) return;
 
-  // Helper: match message session_id to short session id
   const matchSession = (msgSid) => {
     for (const sid of switchedIds) {
       if (msgSid.startsWith(sid)) return sid;
@@ -316,7 +152,6 @@ function applyModelSwitchSplit(db, exchanges) {
 
   const perModel = {};
 
-  // ---- Strategy 1: per-message model field ----
   const likeList = switchedIds
     .map(() => "session_id LIKE ? || '%'")
     .join(" OR ");
@@ -334,9 +169,6 @@ function applyModelSwitchSplit(db, exchanges) {
     try {
       d = JSON.parse(r.data || "{}");
     } catch {}
-    // const m = d.model;
-    // if (!m) continue;
-    // const mid = m.modelID || m.id || "";
     const mid = d.modelID || (d.model && (d.model.modelID || d.model.id)) || "";
     const provID = d.providerID || (d.model && d.model.providerID) || "";
     if (!mid) continue;
@@ -354,12 +186,10 @@ function applyModelSwitchSplit(db, exchanges) {
   }
   st1.free();
 
-  // ---- Strategy 2: timestamp-based fallback ----
   const needFallback = switchedIds.filter(
     (sid) => !Object.keys(perModel).some((k) => k.startsWith(sid + "::")),
   );
   if (needFallback.length > 0) {
-    // Build timeline: session → [{time, model}, ...]
     const timeline = {};
     for (const sid of needFallback) {
       timeline[sid] = [];
@@ -432,13 +262,11 @@ function applyModelSwitchSplit(db, exchanges) {
           cost: 0,
         };
       }
-      const t = d.tokens || {};
       perModel[key].cost += Number(d.cost) || 0;
     }
     fb2.free();
   }
 
-  // ---- Split exchanges ----
   const switchedSet = new Set(switchedIds);
   const kept = [];
   const exchangeBySession = {};
@@ -554,7 +382,6 @@ async function readSessionDetail({ sessionId, homeDir }) {
 
     const exchanges = [];
     let current = null;
-    // Parse session model (may be JSON like {"id":"model","providerID":"provider"} or plain string)
     let sessionModel = "",
       sessionProvider = "";
     if (sessionInfo && sessionInfo.model) {
@@ -583,8 +410,6 @@ async function readSessionDetail({ sessionId, homeDir }) {
       const tokens = msg.tokens || {};
       const cost = msg.cost || 0;
       const ts = msg.timeCreated ? msToIso(msg.timeCreated) : "";
-      // const turnModel = msg.model || sessionModel;
-      // const turnProvider = msg.provider || msg.providerID || sessionProvider;
 
       const turnModel =
         msg.modelID ||
@@ -724,4 +549,4 @@ async function readSessionDetail({ sessionId, homeDir }) {
   }
 }
 
-module.exports = { collect, collectAll, readSessionDetail, opencodeDbPath };
+module.exports = { collectAll, readSessionDetail, opencodeDbPath };

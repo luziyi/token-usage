@@ -2,13 +2,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { calculateExchangeCost } = require('../calculator');
+const { msToIso, getDateKey, getProviderLabel } = require('./util');
 
 const fileCache = new Map();
 
 function extractUserText(entry) {
   if (!entry) return '';
 
-  // entry.message.content — Anthropic API content blocks
   const msg = entry.message;
   if (msg && typeof msg === 'object') {
     if (typeof msg.content === 'string') return msg.content.replace(/\s+/g, ' ').trim();
@@ -16,28 +16,21 @@ function extractUserText(entry) {
       for (const block of msg.content) {
         if (block && typeof block === 'object') {
           if (block.type === 'text' && block.text) return block.text.replace(/\s+/g, ' ').trim();
-          // Some formats store text directly
           if (block.text && !block.type) return block.text.replace(/\s+/g, ' ').trim();
         }
       }
     }
-    // msg itself is the text (entry.message = "text")
     if (typeof msg === 'string') return msg.replace(/\s+/g, ' ').trim();
   }
 
-  // entry.text — text directly on the entry
   if (typeof entry.text === 'string') return entry.text.replace(/\s+/g, ' ').trim();
-
-  // entry.content — content directly on the entry
   if (typeof entry.content === 'string') return entry.content.replace(/\s+/g, ' ').trim();
 
   return '';
 }
 
-// System/internal messages to exclude from user-facing display
 function isUserGenerated(text) {
   if (!text || text.trim().length === 0) return false;
-  // Starts with /command, <tag>, [system], ```code block — skip
   if (/^[/<\[`]/.test(text)) return false;
   return true;
 }
@@ -45,38 +38,6 @@ function isUserGenerated(text) {
 function claudeProjectsDir(home) {
   const dir = home || os.homedir();
   return path.join(dir, '.claude', 'projects');
-}
-
-function msToIso(ms) {
-  if (!ms) return '';
-  const d = new Date(Number(ms));
-  return Number.isNaN(d.getTime()) ? '' : d.toISOString();
-}
-
-function getDateKey(ts) {
-  if (!ts) return 'unknown';
-  const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return 'unknown';
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return y + '-' + m + '-' + day;
-}
-
-function getProviderLabel(providerId) {
-  const map = {
-    deepseek: 'DeepSeek',
-    openai: 'OpenAI',
-    anthropic: 'Anthropic',
-    google: 'Google',
-    meta: 'Meta',
-    mistral: 'Mistral',
-    azure: 'Azure',
-    bedrock: 'AWS Bedrock',
-    together_ai: 'Together AI',
-    fireworks_ai: 'Fireworks AI',
-  };
-  return map[providerId] || providerId || 'unknown';
 }
 
 function providerFromModel(modelId) {
@@ -107,7 +68,6 @@ function findSessionFiles(home) {
           if (entry.isFile() && entry.name.endsWith('.jsonl')) {
             files.push({ filePath: path.join(projectPath, entry.name), projectDir: dir.name });
 
-            // Look for subagent files in matching session directory
             const sessionDirName = entry.name.slice(0, -6);
             const subagentDir = path.join(projectPath, sessionDirName, 'subagents');
             try {
@@ -274,60 +234,6 @@ function clearCache() {
   fileCache.clear();
 }
 
-function readStatsCacheModels(homeDir) {
-  const home = homeDir || os.homedir();
-  const cachePath = path.join(home, '.claude', 'stats-cache.json');
-  const exchanges = [];
-
-  try {
-    const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
-    const modelUsage = cache.modelUsage || {};
-    const firstDate = cache.firstSessionDate || cache.lastComputedDate;
-    if (!firstDate) return exchanges;
-
-    const timeCreated = new Date(firstDate).getTime();
-    const ts = msToIso(timeCreated);
-
-    for (const [model, data] of Object.entries(modelUsage)) {
-      const inputTokens = Number(data.inputTokens) || 0;
-      const outputTokens = Number(data.outputTokens) || 0;
-      const cacheRead = Number(data.cacheReadInputTokens) || 0;
-      const cacheWrite = Number(data.cacheCreationInputTokens) || 0;
-
-      if (inputTokens === 0 && outputTokens === 0 && cacheRead === 0 && cacheWrite === 0) continue;
-
-      const provider = providerFromModel(model);
-      const dateLabel = firstDate ? ' (截至' + firstDate + ')' : '';
-      exchanges.push({
-        inputTokens,
-        outputTokens,
-        cacheReadInputTokens: cacheRead,
-        cacheCreationInputTokens: cacheWrite,
-        reasoningTokens: 0,
-        model,
-        modelClean: model,
-        provider,
-        providerLabel: getProviderLabel(provider),
-        sessionId: 'stats-cache-' + model.replace(/[^a-z0-9]/gi, '-'),
-        timestamp: ts,
-        dateKey: getDateKey(ts),
-        timeCreated,
-        costUsd: 0,
-        costFromDb: 0,
-        sessionTitle: model + dateLabel,
-        dirName: '',
-        projectId: '',
-        source: 'claude-code',
-        agentId: '',
-        agentType: '',
-        agentLabel: '',
-      });
-    }
-  } catch {}
-
-  return exchanges;
-}
-
 async function readAllExchanges({ homeDir }) {
   const home = homeDir || os.homedir();
   const files = findSessionFiles(home);
@@ -337,7 +243,6 @@ async function readAllExchanges({ homeDir }) {
     const session = parseSessionFileCached(filePath, projectDir);
     if (!session) continue;
 
-    // Determine agent info and title
     const isSubagent = Boolean(session.agentId);
     const agentId = session.agentId || '';
     let agentType = '';
@@ -352,7 +257,6 @@ async function readAllExchanges({ homeDir }) {
     } else {
       agentType = '';
       agentLabel = '主代理';
-      // Use meta title, or first user message, or empty
       sessionTitle = (meta && meta.title) || session.sessionTitle || '';
     }
 
@@ -388,43 +292,12 @@ async function readAllExchanges({ homeDir }) {
   return exchanges;
 }
 
-async function collect({ period, allTimeSince, homeDir }) {
-  const allExchanges = await readAllExchanges({ homeDir });
-  const filtered = filterByPeriod(allExchanges, period, allTimeSince);
-  const seenSessions = new Set(filtered.map((e) => e.sessionId).filter(Boolean));
-  return { exchanges: filtered, sessions: Array.from(seenSessions) };
-}
-
 async function collectAll({ allTimeSince, homeDir }) {
   const exchanges = await readAllExchanges({ homeDir });
   if (!allTimeSince) return exchanges;
   const since = new Date(allTimeSince).getTime();
   if (Number.isNaN(since)) return exchanges;
   return exchanges.filter((e) => e.timeCreated >= since);
-}
-
-function filterByPeriod(exchanges, period, allTimeSince) {
-  if (!period || period === 'allTime') {
-    if (allTimeSince) {
-      const since = new Date(allTimeSince).getTime();
-      if (!Number.isNaN(since)) return exchanges.filter((e) => e.timeCreated >= since);
-    }
-    return exchanges;
-  }
-
-  let startMs;
-  if (period === 'today') {
-    const todayStart = new Date();
-    todayStart.setUTCHours(0, 0, 0, 0);
-    startMs = todayStart.getTime();
-  } else if (period === 'month') {
-    const d = new Date();
-    startMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
-  } else {
-    return exchanges;
-  }
-
-  return exchanges.filter((e) => e.timeCreated >= startMs);
 }
 
 async function readSessionDetail({ sessionId, homeDir }) {
@@ -459,7 +332,6 @@ async function readSessionDetail({ sessionId, homeDir }) {
 
         if (entry.type === 'user' && !entry.isMeta) {
           const text = extractUserText(entry).substring(0, 300);
-          // Skip system messages and commands (e.g. /resume, <command-name>, [interrupted])
           if (!text || !isUserGenerated(text)) continue;
           allMessages.push({
             type: 'user',
@@ -518,7 +390,6 @@ async function readSessionDetail({ sessionId, homeDir }) {
       };
     } else if (msg.type === 'assistant') {
       if (!current) {
-        // Assistant message without a preceding user message
         current = {
           promptPreview: '',
           startedAt: msg.timestamp,
@@ -574,4 +445,4 @@ async function readSessionDetail({ sessionId, homeDir }) {
   return { exchanges, summary, found: exchanges.length > 0, sessionInfo };
 }
 
-module.exports = { collect, collectAll, readSessionDetail, clearCache };
+module.exports = { collectAll, readSessionDetail, clearCache };

@@ -2,29 +2,6 @@ const { buildAggregate } = require('../calculator');
 const opencodeCollector = require('./opencode');
 const claudeCollector = require('./claude');
 
-async function collectData({ period, allTimeSince, homeDir }) {
-  const [opencodeResult, claudeResult] = await Promise.all([
-    opencodeCollector.collect({ period, allTimeSince, homeDir }),
-    claudeCollector.collect({ period, allTimeSince, homeDir }),
-  ]);
-
-  const allExchanges = [...opencodeResult.exchanges, ...claudeResult.exchanges];
-  const aggregated = buildAggregate(allExchanges);
-
-  const allSessions = new Set([
-    ...(opencodeResult.sessions || []),
-    ...(claudeResult.sessions || []),
-  ]);
-
-  return {
-    period,
-    exchanges: allExchanges,
-    aggregated,
-    totalExchanges: allExchanges.length,
-    totalSessions: allSessions.size,
-  };
-}
-
 async function collectAllPeriods({ allTimeSince, homeDir }) {
   const [opencodeExchanges, claudeExchanges] = await Promise.all([
     opencodeCollector.collectAll({ allTimeSince, homeDir }),
@@ -32,7 +9,6 @@ async function collectAllPeriods({ allTimeSince, homeDir }) {
   ]);
 
   const allExchanges = [...opencodeExchanges, ...claudeExchanges];
-  const now = Date.now();
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
@@ -93,12 +69,4 @@ async function collectAllPeriods({ allTimeSince, homeDir }) {
   return { today, month, allTime, rawExchanges: allExchanges };
 }
 
-async function collectRawExchanges({ allTimeSince, homeDir }) {
-  const [opencodeExchanges, claudeExchanges] = await Promise.all([
-    opencodeCollector.collectAll({ allTimeSince, homeDir }),
-    claudeCollector.collectAll({ allTimeSince, homeDir }),
-  ]);
-  return [...opencodeExchanges, ...claudeExchanges];
-}
-
-module.exports = { collectData, collectAllPeriods, collectRawExchanges, opencodeCollector, claudeCollector };
+module.exports = { collectAllPeriods, opencodeCollector, claudeCollector };
