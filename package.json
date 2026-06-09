@@ -5,9 +5,11 @@
   "description": "本地优先的 OpenCode Token 消耗监控与费用计算桌面工具",
   "main": "src/main.js",
   "scripts": {
-    "start": "electron .",
-    "dev": "electron .",
-    "build": "electron-builder --publish=never",
+    "build:renderer": "esbuild src/renderer/index.jsx --bundle --outfile=src/renderer/dist/index.js --jsx=automatic",
+    "watch:renderer": "esbuild src/renderer/index.jsx --bundle --outfile=src/renderer/dist/index.js --jsx=automatic --watch",
+    "start": "npm run build:renderer && electron .",
+    "dev": "npm run build:renderer && electron .",
+    "build": "npm run build:renderer && electron-builder --publish=never",
     "check": "node -e \"require('./src/calculator');require('./src/pricing');require('./src/store');console.log('✓ check passed')\""
   },
   "build": {
@@ -21,7 +23,10 @@
     ],
     "win": {
       "extraResources": [
-        { "from": "assets/sqlite3.exe", "to": "sqlite3.exe" }
+        {
+          "from": "assets/sqlite3.exe",
+          "to": "sqlite3.exe"
+        }
       ],
       "target": [
         "portable",
@@ -64,10 +69,13 @@
     "@lobehub/icons": "^5.10.0",
     "@lobehub/icons-static-svg": "^1.91.0",
     "chokidar": "^3.6.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "sql.js": "^1.11.0"
   },
   "devDependencies": {
     "electron": "42.2.0",
-    "electron-builder": "^26.15.0"
+    "electron-builder": "^26.15.0",
+    "esbuild": "^0.28.0"
   }
 }
