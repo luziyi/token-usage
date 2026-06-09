@@ -237,6 +237,26 @@ function applyModelSwitchSplit(db, exchanges) {
   };
 
   const perModel = {};
+  const perModelHasTokens = {};
+
+  function addTokensToPerModel(key, sid, modelId, providerId, tokens, cost) {
+    if (!perModel[key]) {
+      perModel[key] = { sessionId: sid, model: modelId, provider: providerId, inputTokens: 0, outputTokens: 0, cacheRead: 0, cacheWrite: 0, reasoningTokens: 0, cost: 0 };
+    }
+    const t = tokens || {};
+    const ti = Number(t.input) || 0;
+    const to = Number(t.output) || 0;
+    const tcr = Number(t.cache?.read) || Number(t.cache_read) || 0;
+    const tcw = Number(t.cache?.write) || Number(t.cache_write) || 0;
+    const tr = Number(t.reasoning) || 0;
+    perModel[key].inputTokens += ti;
+    perModel[key].outputTokens += to;
+    perModel[key].cacheRead += tcr;
+    perModel[key].cacheWrite += tcw;
+    perModel[key].reasoningTokens += tr;
+    perModel[key].cost += Number(cost) || 0;
+    if (ti > 0 || to > 0) perModelHasTokens[key] = true;
+  }
 
   const likeList = switchedIds
     .map(() => "session_id LIKE ? || '%'")
@@ -258,8 +278,7 @@ function applyModelSwitchSplit(db, exchanges) {
     if (!mid) continue;
     const sid = matchSession(r.session_id);
     const key = sid + "::" + mid;
-    if (!perModel[key]) { perModel[key] = { sessionId: sid, model: mid, provider: provID, cost: 0 }; }
-    perModel[key].cost += Number(d.cost) || 0;
+    addTokensToPerModel(key, sid, mid, provID, d.tokens, d.cost);
   }
 
   const needFallback = switchedIds.filter(
@@ -313,8 +332,7 @@ function applyModelSwitchSplit(db, exchanges) {
       for (const e of tl) { if (msgTime >= e.time) active = e; }
       if (!active) continue;
       const key = sid + "::" + active.model;
-      if (!perModel[key]) { perModel[key] = { sessionId: sid, model: active.model, provider: active.provider || "", cost: 0 }; }
-      perModel[key].cost += Number(d.cost) || 0;
+      addTokensToPerModel(key, sid, active.model, active.provider || "", d.tokens, d.cost);
     }
   }
 
@@ -329,13 +347,20 @@ function applyModelSwitchSplit(db, exchanges) {
   for (const [sid, sessionExchanges] of Object.entries(exchangeBySession)) {
     const orig = sessionExchanges[0];
     const models = Object.values(perModel).filter((p) => p.sessionId === sid);
-    const totalMsgCost = models.reduce((s, m) => s + m.cost, 0);
-    if (totalMsgCost > 0) {
+    const hasExactTokens = models.some((pm) => perModelHasTokens[pm.sessionId + "::" + pm.model]);
+    if (hasExactTokens) {
       for (const pm of models) {
-        const ratio = pm.cost / totalMsgCost;
-        kept.push({ ...orig, model: pm.model, modelClean: pm.model, provider: pm.provider, providerLabel: getProviderLabel(pm.provider), inputTokens: Math.round(orig.inputTokens * ratio), outputTokens: Math.round(orig.outputTokens * ratio), cacheReadInputTokens: Math.round(orig.cacheReadInputTokens * ratio), cacheCreationInputTokens: Math.round(orig.cacheCreationInputTokens * ratio), reasoningTokens: Math.round(orig.reasoningTokens * ratio), costUsd: orig.costUsd * ratio, costFromDb: orig.costUsd * ratio });
+        kept.push({ ...orig, model: pm.model, modelClean: pm.model, provider: pm.provider, providerLabel: getProviderLabel(pm.provider), inputTokens: pm.inputTokens, outputTokens: pm.outputTokens, cacheReadInputTokens: pm.cacheRead, cacheCreationInputTokens: pm.cacheWrite, reasoningTokens: pm.reasoningTokens, costUsd: calculateExchangeCost(pm.inputTokens, pm.outputTokens, pm.cacheRead, pm.cacheWrite, pm.reasoningTokens, pm.model, pm.provider), costFromDb: pm.cost });
       }
-    } else { kept.push(orig); }
+    } else {
+      const totalMsgCost = models.reduce((s, m) => s + m.cost, 0);
+      if (totalMsgCost > 0) {
+        for (const pm of models) {
+          const ratio = pm.cost / totalMsgCost;
+          kept.push({ ...orig, model: pm.model, modelClean: pm.model, provider: pm.provider, providerLabel: getProviderLabel(pm.provider), inputTokens: Math.round(orig.inputTokens * ratio), outputTokens: Math.round(orig.outputTokens * ratio), cacheReadInputTokens: Math.round(orig.cacheReadInputTokens * ratio), cacheCreationInputTokens: Math.round(orig.cacheCreationInputTokens * ratio), reasoningTokens: Math.round(orig.reasoningTokens * ratio), costUsd: orig.costUsd * ratio, costFromDb: orig.costUsd * ratio });
+        }
+      } else { kept.push(orig); }
+    }
   }
   exchanges.length = 0;
   exchanges.push(...kept);
