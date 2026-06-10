@@ -8,3 +8,5 @@ src/renderer/dist/
 .DS_Store
 Thumbs.db
 nul
+.omo/
+

@@ -15,16 +15,23 @@ function calculateExchangeCost(inputTokens, outputTokens, cacheReadTokens, cache
   return cost;
 }
 
+/** 从 exchange 对象中提取标准化的 token 数值，处理负数保护 */
+function extractTokens(ex) {
+  return {
+    input: Math.max(0, ex.inputTokens || 0),
+    output: Math.max(0, ex.outputTokens || 0),
+    cacheRead: Math.max(0, ex.cacheReadInputTokens || 0),
+    cacheWrite: Math.max(0, ex.cacheCreationInputTokens || 0),
+    reasoning: Math.max(0, ex.reasoningTokens || 0),
+  };
+}
+
 function sumTokens(exchanges) {
   let totalCost = 0;
   let totalInput = 0, totalOutput = 0, totalCacheRead = 0, totalCacheWrite = 0, totalReasoning = 0;
 
   for (const ex of exchanges) {
-    const input     = Math.max(0, ex.inputTokens || 0);
-    const output    = Math.max(0, ex.outputTokens || 0);
-    const cacheRead = Math.max(0, ex.cacheReadInputTokens || 0);
-    const cacheWrite= Math.max(0, ex.cacheCreationInputTokens || 0);
-    const reasoning = Math.max(0, ex.reasoningTokens || 0);
+    const { input, output, cacheRead, cacheWrite, reasoning } = extractTokens(ex);
 
     totalInput     += input;
     totalOutput    += output;
@@ -45,11 +52,7 @@ function buildAggregate(exchanges) {
   const byModel = {}, byDate = {}, bySession = {}, byAgent = {};
 
   for (const ex of exchanges) {
-    const input     = Math.max(0, ex.inputTokens || 0);
-    const output    = Math.max(0, ex.outputTokens || 0);
-    const cacheRead = Math.max(0, ex.cacheReadInputTokens || 0);
-    const cacheWrite= Math.max(0, ex.cacheCreationInputTokens || 0);
-    const reasoning = Math.max(0, ex.reasoningTokens || 0);
+    const { input, output, cacheRead, cacheWrite, reasoning } = extractTokens(ex);
 
     // Skip exchanges with 0 total tokens (interrupted/no response)
     if (input + output + cacheRead + cacheWrite + reasoning === 0) continue;

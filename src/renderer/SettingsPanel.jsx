@@ -12,6 +12,7 @@ const COLORS = [
 function SettingsPanel({ settings, onSave, onClose }) {
   const [currency, setCurrency] = useState(settings?.currency || 'USD')
   const [refreshMs, setRefreshMs] = useState(String(settings?.refreshMs || 5000))
+  const [cnyRate, setCnyRate] = useState(String(settings?.cnyRate || 7.2))
   const [accentColor, setAccentColor] = useState(settings?.accentColor || '#5e9eff')
 
   useEffect(() => {
@@ -22,6 +23,7 @@ function SettingsPanel({ settings, onSave, onClose }) {
     if (settings) {
       setCurrency(settings.currency || 'USD')
       setRefreshMs(String(settings.refreshMs || 5000))
+      setCnyRate(String(settings.cnyRate || 7.2))
       setAccentColor(settings.accentColor || '#5e9eff')
     }
   }, [settings])
@@ -30,6 +32,7 @@ function SettingsPanel({ settings, onSave, onClose }) {
     onSave({
       currency,
       refreshMs: parseInt(refreshMs, 10),
+      cnyRate: parseFloat(cnyRate) || 7.2,
       accentColor,
     })
   }
@@ -51,6 +54,29 @@ function SettingsPanel({ settings, onSave, onClose }) {
             <span className="settings-select-arrow">&#9660;</span>
           </div>
         </div>
+        {currency === 'CNY' && (
+          <div className="settings-field">
+            <div className="settings-field-label">USD/CNY 汇率</div>
+            <input
+              type="number"
+              step="0.01"
+              min="1"
+              max="20"
+              value={cnyRate}
+              onChange={e => setCnyRate(e.target.value)}
+              style={{
+                width: '100%',
+                background: 'var(--bg)',
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                padding: '8px 10px',
+                color: 'var(--text)',
+                fontSize: '12px',
+                outline: 'none',
+              }}
+            />
+          </div>
+        )}
         <div className="settings-field">
           <div className="settings-field-label">刷新间隔</div>
           <div className="settings-select-wrap">

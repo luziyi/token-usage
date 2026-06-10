@@ -24,6 +24,7 @@ function TotalPanel({
 
   const totalTokens = aggregated ? aggregated.totalTokens : 0
   const totalCost = aggregated ? aggregated.totalCost : 0
+  const cnyRate = (settings && settings.cnyRate) || 7.2
   const totals = aggregated
     ? aggregated.totals
     : { totalInput: 0, totalOutput: 0, totalCacheRead: 0, totalCacheWrite: 0 }
@@ -98,7 +99,7 @@ function TotalPanel({
       <div className="total-number" aria-live="polite">
         {formatNumberWithCommas(animatedTokens)}
       </div>
-      <div className="cost">{formatCost(totalCost, currency)}</div>
+      <div className="cost">{formatCost(totalCost, currency, cnyRate)}</div>
       <div className="token-breakdown">
         <span>IN {totals.totalInput}</span>
         <span>OUT {totals.totalOutput}</span>

@@ -32,6 +32,7 @@ function defaults() {
     refreshMs: 5000,
     windowBounds: null,
     currency: 'USD',
+    cnyRate: 7.2,
     accentColor: '#5e9eff',
     allTimeSince: '2024-01-01'
   };

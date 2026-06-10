@@ -1,10 +1,28 @@
 const fs = require('node:fs');
+const fsp = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const { calculateExchangeCost } = require('../calculator');
 const { msToIso, getDateKey, getProviderLabel } = require('./util');
 
 const fileCache = new Map();
+const FILE_CACHE_MAX = 500;
+function cacheGet(key) {
+  const val = fileCache.get(key);
+  if (val !== undefined) {
+    // LRU bump: delete & re-insert to move to end
+    fileCache.delete(key);
+    fileCache.set(key, val);
+  }
+  return val;
+}
+function cacheSet(key, val) {
+  if (fileCache.size >= FILE_CACHE_MAX) {
+    const oldest = fileCache.keys().next().value;
+    if (oldest !== undefined) fileCache.delete(oldest);
+  }
+  fileCache.set(key, val);
+}
 
 function extractUserText(entry) {
   if (!entry) return '';
@@ -79,12 +97,18 @@ function findSessionFiles(home) {
                   }
                 }
               }
-            } catch {}
+            } catch (err) {
+              console.warn('[claude] 读取子代理目录失败:', err.message);
+            }
           }
         }
-      } catch {}
+      } catch (err) {
+        console.warn('[claude] 读取项目目录失败:', err.message);
+      }
     }
-  } catch {}
+  } catch (err) {
+    console.warn('[claude] 查找会话文件失败:', err.message);
+  }
   return files;
 }
 
@@ -99,7 +123,9 @@ function findSessionFileById(sessionId, home) {
         return { filePath: candidate, projectDir: dir.name };
       }
     }
-  } catch {}
+  } catch (err) {
+    console.warn('[claude] 按 ID 查找会话文件失败:', err.message);
+  }
   return null;
 }
 
@@ -112,7 +138,7 @@ function readMetaFile(filePath) {
   }
 }
 
-function parseSessionFile(filePath, projectDir) {
+async function parseSessionFile(filePath, projectDir) {
   let sessionId = '';
   let cwd = '';
   let firstTimestamp = 0;
@@ -121,7 +147,7 @@ function parseSessionFile(filePath, projectDir) {
   const assistantMessages = [];
 
   try {
-    const content = fs.readFileSync(filePath, 'utf8');
+    const content = await fsp.readFile(filePath, 'utf8');
     const lines = content.split('\n');
     const seenIds = new Set();
 
@@ -172,9 +198,13 @@ function parseSessionFile(filePath, projectDir) {
           const text = extractUserText(entry);
           if (text && isUserGenerated(text)) firstUserMessage = text.substring(0, 120);
         }
-      } catch {}
+      } catch (err) {
+        console.warn('[claude] 解析会话行失败，跳过该行:', err.message);
+      }
     }
-  } catch {}
+  } catch (err) {
+    console.warn('[claude] 读取会话文件失败:', err.message);
+  }
 
   if (!sessionId || assistantMessages.length === 0) return null;
 
@@ -213,19 +243,20 @@ function parseSessionFile(filePath, projectDir) {
   };
 }
 
-function parseSessionFileCached(filePath, projectDir) {
+async function parseSessionFileCached(filePath, projectDir) {
   try {
-    const stat = fs.statSync(filePath);
-    const cached = fileCache.get(filePath);
+    const stat = await fsp.stat(filePath);
+    const cached = cacheGet(filePath);
     if (cached && cached.mtime === stat.mtimeMs) {
       return cached.data;
     }
-    const data = parseSessionFile(filePath, projectDir);
+    const data = await parseSessionFile(filePath, projectDir);
     if (data) {
-      fileCache.set(filePath, { mtime: stat.mtimeMs, data });
+      cacheSet(filePath, { mtime: stat.mtimeMs, data });
     }
     return data;
-  } catch {
+  } catch (err) {
+    console.warn('[claude] 读取缓存会话文件失败:', err.message);
     return null;
   }
 }
@@ -237,59 +268,67 @@ function clearCache() {
 async function readAllExchanges({ homeDir }) {
   const home = homeDir || os.homedir();
   const files = findSessionFiles(home);
-  const exchanges = [];
 
-  for (const { filePath, projectDir } of files) {
-    const session = parseSessionFileCached(filePath, projectDir);
-    if (!session) continue;
+  // 并行处理，一次最多 20 个文件
+  const CONCURRENCY = 20;
+  const results = [];
+  for (let i = 0; i < files.length; i += CONCURRENCY) {
+    const batch = files.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.all(
+      batch.map(async ({ filePath, projectDir }) => {
+        const session = await parseSessionFileCached(filePath, projectDir);
+        if (!session) return [];
 
-    const isSubagent = Boolean(session.agentId);
-    const agentId = session.agentId || '';
-    let agentType = '';
-    let agentLabel = '';
+        const isSubagent = Boolean(session.agentId);
+        const agentId = session.agentId || '';
+        let agentType = '';
+        let agentLabel = '';
 
-    const meta = readMetaFile(filePath);
-    let sessionTitle = '';
+        const meta = readMetaFile(filePath);
+        let sessionTitle = '';
 
-    if (isSubagent) {
-      agentType = (meta && meta.agentType) || '';
-      agentLabel = agentType || agentId.replace('agent-', '').substring(0, 8);
-    } else {
-      agentType = '';
-      agentLabel = '主代理';
-      sessionTitle = (meta && meta.title) || session.sessionTitle || '';
-    }
+        if (isSubagent) {
+          agentType = (meta && meta.agentType) || '';
+          agentLabel = agentType || agentId.replace('agent-', '').substring(0, 8);
+        } else {
+          agentType = '';
+          agentLabel = '主代理';
+          sessionTitle = (meta && meta.title) || session.sessionTitle || '';
+        }
 
-    for (const [model, tokens] of Object.entries(session.modelGroups)) {
-      const provider = providerFromModel(model);
-      exchanges.push({
-        inputTokens: tokens.inputTokens,
-        outputTokens: tokens.outputTokens,
-        cacheReadInputTokens: tokens.cacheRead,
-        cacheCreationInputTokens: tokens.cacheWrite,
-        reasoningTokens: tokens.reasoningTokens,
-        model,
-        modelClean: model,
-        provider,
-        providerLabel: getProviderLabel(provider),
-        sessionId: session.sessionId,
-        timestamp: session.ts,
-        dateKey: session.dateKey,
-        timeCreated: tokens.firstTime,
-        costUsd: 0,
-        costFromDb: 0,
-        sessionTitle,
-        dirName: session.cwd || session.projectDir,
-        projectId: session.projectDir,
-        agentId,
-        agentType,
-        agentLabel,
-        source: 'claude-code',
-      });
-    }
+        return Object.entries(session.modelGroups).map(([model, tokens]) => {
+          const provider = providerFromModel(model);
+          return {
+            inputTokens: tokens.inputTokens,
+            outputTokens: tokens.outputTokens,
+            cacheReadInputTokens: tokens.cacheRead,
+            cacheCreationInputTokens: tokens.cacheWrite,
+            reasoningTokens: tokens.reasoningTokens,
+            model,
+            modelClean: model,
+            provider,
+            providerLabel: getProviderLabel(provider),
+            sessionId: session.sessionId,
+            timestamp: session.ts,
+            dateKey: session.dateKey,
+            timeCreated: tokens.firstTime,
+            costUsd: 0,
+            costFromDb: 0,
+            sessionTitle,
+            dirName: session.cwd || session.projectDir,
+            projectId: session.projectDir,
+            agentId,
+            agentType,
+            agentLabel,
+            source: 'claude-code',
+          };
+        });
+      }),
+    );
+    for (const items of batchResults) results.push(...items);
   }
 
-  return exchanges;
+  return results;
 }
 
 async function collectAll({ allTimeSince, homeDir }) {
@@ -369,9 +408,13 @@ async function readSessionDetail({ sessionId, homeDir }) {
             uuid: entry.uuid,
           });
         }
-      } catch {}
+      } catch (err) {
+        console.warn('[claude] 解析会话详情行失败，跳过该行:', err.message);
+      }
     }
-  } catch {}
+  } catch (err) {
+    console.warn('[claude] 读取会话详情文件失败:', err.message);
+  }
 
   const exchanges = [];
   let current = null;

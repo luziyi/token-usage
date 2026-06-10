@@ -300,6 +300,7 @@ body {
   line-height: 1.1;
   letter-spacing: -0.5px;
   font-variant-numeric: tabular-nums;
+  will-change: contents;
 }
 
 .cost {
@@ -332,6 +333,7 @@ body {
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
   overscroll-behavior: contain;
+  contain: layout style;
 }
 .breakdown::-webkit-scrollbar {
   width: 4px;
@@ -361,6 +363,7 @@ body {
   border-radius: 6px;
   transition: background 0.12s;
   cursor: pointer;
+  contain: layout style paint;
 }
 
 .row:hover {
@@ -450,6 +453,7 @@ body {
   height: 100%;
   border-radius: 2px;
   transition: width 0.4s ease;
+  will-change: width;
 }
 
 /* Settings Panel */
@@ -590,6 +594,7 @@ body {
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
   overscroll-behavior: contain;
+  contain: layout style;
 }
 .session-detail::-webkit-scrollbar {
   width: 4px;
@@ -651,6 +656,7 @@ body {
   padding: 6px 8px;
   border-radius: 6px;
   transition: background 0.12s;
+  contain: layout style paint;
 }
 
 .detail-exchange:hover {

@@ -13,13 +13,19 @@ contextBridge.exposeInMainWorld('tokenUsage', {
   getSessionDetail: (params) => ipcRenderer.invoke('session:getDetail', params),
 
   onDataPush: (callback) => {
-    const listener = (_event, payload) => { try { callback(payload); } catch {} };
+    const listener = (_event, payload) => {
+      try { callback(payload); }
+      catch (err) { console.warn('[Token Usage] onDataPush 回调执行失败:', err); }
+    };
     ipcRenderer.on('data:push', listener);
     return () => ipcRenderer.removeListener('data:push', listener);
   },
 
   onSettingsPush: (callback) => {
-    const listener = (_event, payload) => { try { callback(payload); } catch {} };
+    const listener = (_event, payload) => {
+      try { callback(payload); }
+      catch (err) { console.warn('[Token Usage] onSettingsPush 回调执行失败:', err); }
+    };
     ipcRenderer.on('settings:push', listener);
     return () => ipcRenderer.removeListener('settings:push', listener);
   }

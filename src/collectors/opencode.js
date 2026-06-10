@@ -50,7 +50,9 @@ function rowToExchange(row) {
     const parsed = JSON.parse(modelRaw);
     modelId = parsed.id || parsed.modelID || parsed.model || "";
     providerId = parsed.providerID || "";
-  } catch {}
+  } catch {
+    // modelRaw 是普通字符串而非 JSON，直接使用
+  }
 
   if (!modelId) return null;
 
@@ -83,7 +85,9 @@ function rowToExchange(row) {
 
 function findSqlite3() {
   let isPkg = false;
-  try { isPkg = require("electron").app.isPackaged; } catch {}
+  try { isPkg = require("electron").app.isPackaged; } catch {
+    // 非 Electron 环境（如测试），默认为 false
+  }
   const candidates = [];
 
   if (process.platform === "win32") {
@@ -111,7 +115,9 @@ function findSqlite3() {
         stdio: ["ignore", "pipe", "ignore"],
       });
       if (r && r.trim()) return c;
-    } catch {}
+    } catch {
+      // 候选路径不存在或无执行权限，继续尝试下一个
+    }
   }
   return null;
 }
@@ -176,7 +182,9 @@ function sqlAll(db, sql, params) {
 
 function dbClose(db) {
   if (!db || db._type === "cli") return;
-  try { db.close(); } catch {}
+  try { db.close(); } catch (err) {
+    console.warn("[opencode] 关闭数据库失败:", err.message);
+  }
 }
 
 // -- End DB engine --
@@ -272,7 +280,9 @@ function applyModelSwitchSplit(db, exchanges) {
   );
   for (const r of st1Rows) {
     let d = {};
-    try { d = JSON.parse(r.data || "{}"); } catch {}
+    try { d = JSON.parse(r.data || "{}"); } catch (err) {
+      console.warn("[opencode] 解析消息 data 失败:", err.message);
+    }
     const mid = d.modelID || (d.model && (d.model.modelID || d.model.id)) || "";
     const provID = d.providerID || (d.model && d.model.providerID) || "";
     if (!mid) continue;
@@ -293,7 +303,9 @@ function applyModelSwitchSplit(db, exchanges) {
         try {
           const p = JSON.parse(sRows[0].model || "{}");
           if (p.id) timeline[sid].push({ time: 0, model: p.id, provider: p.providerID || "" });
-        } catch {}
+        } catch (err) {
+          console.warn("[opencode] 解析 session model 失败:", err.message);
+        }
       }
     }
 
@@ -306,7 +318,9 @@ function applyModelSwitchSplit(db, exchanges) {
     );
     for (const r of fb1Rows) {
       let d = {};
-      try { d = JSON.parse(r.data || "{}"); } catch {}
+      try { d = JSON.parse(r.data || "{}"); } catch (err) {
+        console.warn("[opencode] 解析 model-switched data 失败:", err.message);
+      }
       const mi = d.model;
       if (!mi || !mi.id) continue;
       const time = d.time && d.time.created ? Number(d.time.created) : 0;
@@ -324,7 +338,9 @@ function applyModelSwitchSplit(db, exchanges) {
     );
     for (const r of fb2Rows) {
       let d = {};
-      try { d = JSON.parse(r.data || "{}"); } catch {}
+      try { d = JSON.parse(r.data || "{}"); } catch (err) {
+        console.warn("[opencode] 解析 fallback message data 失败:", err.message);
+      }
       const msgTime = Number(r.time_created) || 0;
       const sid = matchSession(r.session_id);
       const tl = timeline[sid] || [];
@@ -385,7 +401,9 @@ async function readSessionDetail({ sessionId, homeDir }) {
     const messages = [];
     for (const row of msgRows) {
       let data = {};
-      try { data = JSON.parse(row.data || "{}"); } catch {}
+      try { data = JSON.parse(row.data || "{}"); } catch (err) {
+        console.warn("[opencode] 解析消息行 data 失败:", err.message);
+      }
       messages.push({ id: row.id, sessionId: row.session_id, timeCreated: row.time_created, ...data });
     }
 
@@ -393,7 +411,9 @@ async function readSessionDetail({ sessionId, homeDir }) {
     const partsMap = {};
     for (const row of partRows) {
       let data = {};
-      try { data = JSON.parse(row.data || "{}"); } catch {}
+      try { data = JSON.parse(row.data || "{}"); } catch (err) {
+        console.warn("[opencode] 解析 part data 失败:", err.message);
+      }
       const mid = row.message_id;
       if (!partsMap[mid]) partsMap[mid] = [];
       partsMap[mid].push(data);

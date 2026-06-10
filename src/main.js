@@ -61,7 +61,9 @@ function ensureClaudeConfig() {
     if (fs.existsSync(settingsPath)) {
       claudeSettings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
     }
-  } catch {}
+  } catch (err) {
+    console.warn("[Token Usage] 读取 Claude settings 失败:", err.message);
+  }
 
   if (claudeSettings.cleanupPeriodDays !== undefined) return;
 
@@ -73,7 +75,9 @@ function ensureClaudeConfig() {
       JSON.stringify(claudeSettings, null, 2) + "\n",
       "utf8",
     );
-  } catch {}
+  } catch (err) {
+    console.error("[Token Usage] 写入 Claude settings 失败:", err.message);
+  }
 }
 
 async function collectAndPush() {
@@ -143,9 +147,11 @@ function watchDbFiles() {
         awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 },
       });
       opencodeWatcher.on("all", () => scheduleWatchTick());
-      opencodeWatcher.on("error", () => {});
+      opencodeWatcher.on("error", (err) => console.warn("[Token Usage] opencode watcher 错误:", err.message));
     }
-  } catch {}
+  } catch (err) {
+    console.error("[Token Usage] 创建 opencode 文件监听失败:", err.message);
+  }
 
   try {
     const projectsDir = claudeProjectsPath();
@@ -162,9 +168,11 @@ function watchDbFiles() {
         claudeCollector.clearCache();
         scheduleWatchTick();
       });
-      claudeWatcher.on("error", () => {});
+      claudeWatcher.on("error", (err) => console.warn("[Token Usage] claude watcher 错误:", err.message));
     }
-  } catch {}
+  } catch (err) {
+    console.error("[Token Usage] 创建 Claude 文件监听失败:", err.message);
+  }
 }
 
 function stopWatchers() {
@@ -175,13 +183,17 @@ function stopWatchers() {
   if (opencodeWatcher) {
     try {
       opencodeWatcher.close();
-    } catch {}
+    } catch (err) {
+      console.warn("[Token Usage] 关闭 opencode watcher 失败:", err.message);
+    }
     opencodeWatcher = null;
   }
   if (claudeWatcher) {
     try {
       claudeWatcher.close();
-    } catch {}
+    } catch (err) {
+      console.warn("[Token Usage] 关闭 claude watcher 失败:", err.message);
+    }
     claudeWatcher = null;
   }
 }

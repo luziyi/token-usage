@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import TitleBar from './TitleBar'
 import TotalPanel from './TotalPanel'
 import SettingsPanel from './SettingsPanel'
@@ -71,16 +71,16 @@ const ICON_COLORS = {
   'icons/meta.svg': '#0082FB',
 }
 
-export function formatNumber(n) { return String(n) }
-
 export function formatNumberWithCommas(n) {
   return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
 
-export function formatCost(costUsd, currency) {
+export function formatNumber(n) { return formatNumberWithCommas(n) }
+
+export function formatCost(costUsd, currency, cnyRate) {
   const c = currency || 'USD'
   if (costUsd < 0.001) return '<$0.01'
-  if (c === 'CNY') return '¥' + (costUsd * 7.2).toFixed(2)
+  if (c === 'CNY') return '¥' + (costUsd * (cnyRate || 7.2)).toFixed(2)
   return '$' + costUsd.toFixed(3)
 }
 
@@ -215,6 +215,27 @@ export function useAnimatedNumber(target) {
   return display
 }
 
+/** 轻量级数据等效检测：比较三个时间维度的关键指标，相同则跳过全量重渲染 */
+function isDataEquivalent(prev, next) {
+  if (!prev || !next) return false
+  for (const key of ['today', 'month', 'allTime']) {
+    const a = prev[key]
+    const b = next[key]
+    if (!a || !b) return false
+    if (a.totalExchanges !== b.totalExchanges) return false
+    if (a.totalSessions !== b.totalSessions) return false
+    if (a.aggregated && b.aggregated) {
+      if (a.aggregated.totalTokens !== b.aggregated.totalTokens) return false
+      if (a.aggregated.totalCost !== b.aggregated.totalCost) return false
+    } else if (a.aggregated || b.aggregated) {
+      return false
+    }
+  }
+  return true
+}
+
+const dataRef = { current: null }
+
 export default function App() {
   const [period, setPeriod] = useState('today')
   const [breakdown, setBreakdown] = useState('model')
@@ -233,31 +254,48 @@ export default function App() {
       setStatusText('就绪')
       return api.getData()
     }).then(d => {
-      if (d) setData(d)
+      if (d) { dataRef.current = d; setData(d) }
     })
   }, [])
 
+  const sessionDetailRef = useRef(null)
+  sessionDetailRef.current = sessionDetail
+
   useEffect(() => {
+    let detailTimer = null
     const unsubData = api.onDataPush(payload => {
       if (payload.error) {
         setStatusText('错误: ' + payload.error)
         setConnected(false)
         return
       }
-      setData(payload.data)
+      // 核心优化：数据等效检测，阻断全量重渲染链
+      if (!isDataEquivalent(dataRef.current, payload.data)) {
+        dataRef.current = payload.data
+        setData(payload.data)
+      }
       if (payload.settings) setSettings(payload.settings)
       setConnected(true)
       setStatusText('更新于 ' + new Date(payload.at).toLocaleTimeString())
-      if (sessionDetail && !sessionDetail.loading && sessionDetail.sessionId) {
-        api.getSessionDetail({ sessionId: sessionDetail.sessionId }).then(r => {
-          if (!r) return
-          setSessionDetail(prev => ({ ...prev, ...r, loading: false }))
-        })
+      // 会话详情自动刷新防抖：2s 内多次 push 只触发一次
+      const sd = sessionDetailRef.current
+      if (sd && !sd.loading && sd.sessionId) {
+        if (detailTimer) clearTimeout(detailTimer)
+        detailTimer = setTimeout(() => {
+          api.getSessionDetail({ sessionId: sd.sessionId }).then(r => {
+            if (!r) return
+            setSessionDetail(prev => prev && prev.sessionId === r.sessionId ? { ...prev, ...r, loading: false } : prev)
+          })
+        }, 2000)
       }
     })
     const unsubSettings = api.onSettingsPush(s => setSettings(s))
-    return () => { unsubData(); unsubSettings() }
-  }, [sessionDetail])
+    return () => {
+      unsubData()
+      unsubSettings()
+      if (detailTimer) clearTimeout(detailTimer)
+    }
+  }, [])
 
   useEffect(() => {
     if (settings?.accentColor) {

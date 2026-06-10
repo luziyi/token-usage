@@ -10,6 +10,7 @@ function SessionDetail({ detail, onClose, settings }) {
   const scrollRef = useRef(null)
   const scrollPosRef = useRef(0)
   const currency = (settings && settings.currency) || 'USD'
+  const cnyRate = (settings && settings.cnyRate) || 7.2
 
   const { loading, error, found, exchanges, summary } = detail || {}
 
@@ -58,6 +59,7 @@ function SessionDetail({ detail, onClose, settings }) {
           exchange={ex}
           maxValue={maxValue}
           currency={currency}
+          cnyRate={cnyRate}
         />
       ))}
     </section>
@@ -72,7 +74,7 @@ function EmptyNote({ text }) {
   )
 }
 
-const ExchangeNode = memo(function ExchangeNode({ exchange, maxValue, currency }) {
+const ExchangeNode = memo(function ExchangeNode({ exchange, maxValue, currency, cnyRate }) {
   const [expanded, setExpanded] = useState(false)
   const hasTurns = exchange.turns && exchange.turns.length > 0
 
@@ -104,14 +106,14 @@ const ExchangeNode = memo(function ExchangeNode({ exchange, maxValue, currency }
         </div>
         <div className="detail-ex-metrics">
           <span className="detail-ex-value">{formatNumber(exchange.tokens?.total || 0)}</span>
-          <span className="detail-ex-cost">{formatCost(exchange.costEstimate || 0, currency)}</span>
+          <span className="detail-ex-cost">{formatCost(exchange.costEstimate || 0, currency, cnyRate)}</span>
         </div>
       </div>
       <div className="bar"><div className="bar-fill" style={{ width: pct + '%' }} /></div>
       {expanded && hasTurns && (
         <div className="detail-turns">
           {exchange.turns.map((turn, i) => (
-            <TurnNode key={i} turn={turn} index={i} currency={currency} />
+            <TurnNode key={i} turn={turn} index={i} currency={currency} cnyRate={cnyRate} />
           ))}
         </div>
       )}
@@ -119,7 +121,7 @@ const ExchangeNode = memo(function ExchangeNode({ exchange, maxValue, currency }
   )
 })
 
-const TurnNode = memo(function TurnNode({ turn, index, currency }) {
+const TurnNode = memo(function TurnNode({ turn, index, currency, cnyRate }) {
   const tk = turn.tokens || {}
   const cache = (tk.cacheRead || 0) + (tk.cacheWrite || 0)
   const split = 'IN ' + formatNumber(tk.input || 0) + ' · OUT ' + formatNumber(tk.output || 0) + ' · CACHE ' + formatNumber(cache) + (tk.reasoning ? ' · REASON ' + formatNumber(tk.reasoning) : '')
@@ -132,7 +134,7 @@ const TurnNode = memo(function TurnNode({ turn, index, currency }) {
       </div>
       <div className="detail-turn-metrics">
         <span className="detail-turn-value">{formatNumber(tk.total || 0)}</span>
-        <span className="detail-turn-cost">{formatCost(turn.costEstimate || 0, currency)}</span>
+        <span className="detail-turn-cost">{formatCost(turn.costEstimate || 0, currency, cnyRate)}</span>
       </div>
     </div>
   )

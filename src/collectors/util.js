@@ -26,6 +26,10 @@ function getProviderLabel(providerId) {
     bedrock: "AWS Bedrock",
     together_ai: "Together AI",
     fireworks_ai: "Fireworks AI",
+    qwen: "Qwen",
+    minimax: "MiniMax",
+    cohere: "Cohere",
+    openrouter: "OpenRouter",
   };
   return map[providerId] || providerId || "unknown";
 }

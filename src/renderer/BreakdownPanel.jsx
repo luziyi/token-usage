@@ -28,6 +28,7 @@ function BreakdownPanel({ data, period, breakdown, settings, onOpenSessionDetail
   })
 
   const currency = (settings && settings.currency) || 'USD'
+  const cnyRate = (settings && settings.cnyRate) || 7.2
   const accentColor = settings && settings.accentColor
 
   const periodData = data ? data[period] : null
@@ -136,6 +137,7 @@ function BreakdownPanel({ data, period, breakdown, settings, onOpenSessionDetail
             group={g}
             maxTokens={maxTokens}
             currency={currency}
+            cnyRate={cnyRate}
             onOpen={onOpenSessionDetail}
           />
         ))
@@ -144,7 +146,7 @@ function BreakdownPanel({ data, period, breakdown, settings, onOpenSessionDetail
   )
 }
 
-const BreakdownRow = memo(function BreakdownRow({ group, maxTokens, currency, onOpen }) {
+const BreakdownRow = memo(function BreakdownRow({ group, maxTokens, currency, cnyRate, onOpen }) {
   const pct = group.tokens / maxTokens
   const toolIcon = group.source ? agentIcon(group.source) : null
   const iconPath = toolIcon || modelIconSrc(group.key, group.provider, group.modelKey)
@@ -172,7 +174,7 @@ const BreakdownRow = memo(function BreakdownRow({ group, maxTokens, currency, on
         </div>
         <div className="row-metrics">
           <div className="row-tokens">{formatNumberWithCommas(group.tokens)}</div>
-          <div className="row-cost">{formatCost(group.cost, currency)}</div>
+          <div className="row-cost">{formatCost(group.cost, currency, cnyRate)}</div>
         </div>
       </div>
       <div className="row-detail">{group.detail}</div>
